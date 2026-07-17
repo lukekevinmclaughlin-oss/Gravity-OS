@@ -18,13 +18,30 @@ export interface SingularityProps {
 
 interface Result {
   id: string;
-  kind: "app" | "action" | "calc";
+  kind: "app" | "action" | "calc" | "setting";
   title: string;
   sub?: string;
   hue?: number;
   icon?: React.ReactNode;
   run: () => void;
 }
+
+/** Curated ms-settings deep links (spec §5). Opened via the Rust core,
+ *  which whitelists the ms-settings: scheme. */
+const SETTINGS_LINKS: Array<{ title: string; uri: string }> = [
+  { title: "Wi-Fi Settings", uri: "ms-settings:network-wifi" },
+  { title: "Bluetooth Settings", uri: "ms-settings:bluetooth" },
+  { title: "Display Settings", uri: "ms-settings:display" },
+  { title: "Night Light", uri: "ms-settings:nightlight" },
+  { title: "Sound Settings", uri: "ms-settings:sound" },
+  { title: "Notifications Settings", uri: "ms-settings:notifications" },
+  { title: "Battery & Power", uri: "ms-settings:powersleep" },
+  { title: "Storage Settings", uri: "ms-settings:storagesense" },
+  { title: "Personalization", uri: "ms-settings:personalization" },
+  { title: "Default Apps", uri: "ms-settings:defaultapps" },
+  { title: "Windows Update", uri: "ms-settings:windowsupdate" },
+  { title: "About This PC", uri: "ms-settings:about" },
+];
 
 export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme }: SingularityProps) {
   const { state, actions } = useShell();
@@ -125,6 +142,23 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
       : [];
     out.push(...actionResults.slice(0, 4));
 
+    if (query) {
+      const settings = rank(query, SETTINGS_LINKS, (s) => s.title);
+      for (const s of settings.slice(0, 3)) {
+        out.push({
+          id: `set-${s.uri}`,
+          kind: "setting",
+          title: s.title,
+          sub: "System Settings",
+          icon: <SunIcon size={17} />,
+          run: () => {
+            actions.openSetting(s.uri);
+            onClose();
+          },
+        });
+      }
+    }
+
     return out;
   }, [query, state, actions, onClose, onOpenConstellation, onToggleTheme]);
 
@@ -144,7 +178,11 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
     } else if (e.key === "Enter") {
       results[sel]?.run();
     } else if (e.key === "Escape") {
-      onClose();
+      // Two-stage escape (spec §5): first clears the query, second closes.
+      // Stop propagation so outer Escape handlers don't force a close.
+      e.stopPropagation();
+      if (query) setQuery("");
+      else onClose();
     }
   };
 
@@ -172,7 +210,9 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
                 onClick={r.run}
               >
                 {r.kind === "app" && <AppTile name={r.title} hue={r.hue!} size={30} />}
-                {r.kind === "action" && <span className="sing__actIcon">{r.icon}</span>}
+                {(r.kind === "action" || r.kind === "setting") && (
+                  <span className="sing__actIcon">{r.icon}</span>
+                )}
                 {r.kind === "calc" ? (
                   <>
                     <span className="sing__calcExpr">{r.sub} =</span>

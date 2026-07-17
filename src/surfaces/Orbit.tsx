@@ -2,15 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { TrashIcon } from "../components/Icons";
-import { gravityWell } from "../lib/physics";
 import { isAppRunning, windowsOf } from "../shell/types";
 import "./orbit.css";
 
-/** Orbit — Gravity's dock. Icons sit in a shallow gravity well: instead of
- *  Apple-style magnification they lean and rise toward the cursor's mass.
- *  Running apps carry an orbital ring with a moving satellite. */
+/** Orbit — Gravity's dock, with true magnification (spec §4):
+ *  tiles grow toward 2.0× under the cursor with a Gaussian falloff and track
+ *  the cursor 1:1 — no smoothing while the pointer moves; springs only on
+ *  shelf enter/leave. Width-based growth lets the shelf widen naturally. */
 
-const WELL_RADIUS = 150;
+const BASE = 48;
+const MAX_SCALE = 2.0;
+const SIGMA = 60;
+
+function magnify(dx: number): number {
+  return 1 + (MAX_SCALE - 1) * Math.exp(-(dx * dx) / (2 * SIGMA * SIGMA));
+}
 
 export function Orbit() {
   const { state, actions } = useShell();
@@ -31,28 +37,16 @@ export function Orbit() {
     ...state.apps.filter((a) => !a.pinned && isAppRunning(state, a.id)),
   ];
 
-  const applyPhysics = (mouseX: number | null) => {
-    const els = items
-      .map((a) => tileRefs.current.get(a.id))
-      .filter((el): el is HTMLElement => !!el);
-    const n = els.length;
-    els.forEach((el, idx) => {
-      // Shallow horizon arc: the centre of the bar sits deeper in the well.
-      const c = (n - 1) / 2;
-      const arc = n > 1 ? 4 * (1 - ((idx - c) / c) ** 2) : 4;
-      let scale = 1;
-      let tx = 0;
-      let ty = arc;
+  const applyMagnify = (mouseX: number | null) => {
+    for (const el of tileRefs.current.values()) {
+      if (!el.isConnected) continue;
+      let w = BASE;
       if (mouseX !== null) {
         const rect = el.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const inf = gravityWell(cx - mouseX, WELL_RADIUS);
-        scale = 1 + 0.24 * inf;
-        ty = arc - 18 * inf;
-        tx = Math.max(-7, Math.min(7, (mouseX - cx) * 0.06 * inf));
+        w = BASE * magnify(rect.left + rect.width / 2 - mouseX);
       }
-      el.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    });
+      el.style.width = `${w}px`;
+    }
   };
 
   const onAppClick = (appId: string) => {
@@ -68,12 +62,12 @@ export function Orbit() {
 
   return (
     <nav
-      className={`orbit glass lens ${live ? "is-live" : ""}`}
+      className={`orbit glass ${live ? "is-live" : ""}`}
       onMouseEnter={() => setLive(true)}
-      onMouseMove={(e) => applyPhysics(e.clientX)}
+      onMouseMove={(e) => applyMagnify(e.clientX)}
       onMouseLeave={() => {
         setLive(false);
-        applyPhysics(null);
+        applyMagnify(null);
       }}
     >
       {items.map((app) => {
@@ -82,6 +76,8 @@ export function Orbit() {
           <button
             key={app.id}
             className="orbitItem"
+            style={{ width: BASE }}
+            aria-label={app.name}
             ref={(el) => {
               if (el) tileRefs.current.set(app.id, el);
               else tileRefs.current.delete(app.id);
@@ -90,13 +86,9 @@ export function Orbit() {
           >
             <span className="orbitItem__label glass-heavy">{app.name}</span>
             <span className={`orbitItem__tileWrap ${launching.has(app.id) ? "is-launching" : ""}`}>
-              <AppTile name={app.name} hue={app.hue} size={46} />
-              {running && (
-                <span className="orbitItem__ring">
-                  <span className="orbitItem__satellite" />
-                </span>
-              )}
+              <AppTile name={app.name} hue={app.hue} appId={app.id} fill />
             </span>
+            <span className={`orbitItem__dot ${running ? "is-running" : ""}`} />
           </button>
         );
       })}
@@ -105,6 +97,11 @@ export function Orbit() {
 
       <button
         className={`orbitItem orbit__trash ${state.status.trashFull ? "" : "is-empty"}`}
+        style={{ width: BASE }}
+        ref={(el) => {
+          if (el) tileRefs.current.set("__trash", el);
+          else tileRefs.current.delete("__trash");
+        }}
         onClick={actions.emptyTrash}
         title={state.status.trashFull ? "Trash — click to empty" : "Trash is empty"}
       >
@@ -113,6 +110,7 @@ export function Orbit() {
           <TrashIcon size={21} />
           {state.status.trashFull && <span className="orbit__trashDot" />}
         </span>
+        <span className="orbitItem__dot" />
       </button>
     </nav>
   );

@@ -40,9 +40,16 @@ export class TauriShell implements ShellProviderI {
   private async start(pollMs: number) {
     const core = await import("@tauri-apps/api/core");
     this.invoke = core.invoke as Invoke;
+    let lastJson = "";
     const tick = async () => {
       try {
         const next = (await this.invoke!("get_shell_state")) as ShellState;
+        // Skip render work across every surface when nothing changed —
+        // the state is a few KB, so a string compare is far cheaper than
+        // a React commit in four windows (spec §13).
+        const json = JSON.stringify(next);
+        if (json === lastJson) return;
+        lastJson = json;
         this.state = next;
         this.listeners.forEach((l) => l());
       } catch (err) {
@@ -77,5 +84,8 @@ export class TauriShell implements ShellProviderI {
     dismissNotification: (id) => this.call("dismiss_notification", { id }),
     switchOrbit: (id) => this.call("switch_orbit", { id }),
     emptyTrash: () => this.call("empty_trash"),
+    powerAction: (kind) => this.call("power_action", { kind }),
+    editAction: (kind) => this.call("edit_action", { kind }),
+    openSetting: (uri) => this.call("open_uri", { uri }),
   };
 }

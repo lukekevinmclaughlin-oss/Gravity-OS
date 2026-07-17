@@ -57,6 +57,11 @@ export interface ShellState {
 
 export type ToggleKey = "wifi" | "bluetooth" | "focus";
 
+/** Session power verbs surfaced by the Gravity menu. */
+export type PowerKind = "sleep" | "restart" | "shutdown" | "lock";
+/** Clipboard verbs synthesized into the focused app (spec §3). */
+export type EditKind = "cut" | "copy" | "paste" | "select-all" | "undo" | "redo";
+
 export interface ShellActions {
   focusWindow(id: string): void;
   minimizeWindow(id: string): void;
@@ -68,6 +73,12 @@ export interface ShellActions {
   dismissNotification(id: string): void;
   switchOrbit(id: string): void;
   emptyTrash(): void;
+  /** Real session actions (no-ops on the mock, confirmed in UI first). */
+  powerAction(kind: PowerKind): void;
+  /** Synthesize an edit chord into the currently focused foreign window. */
+  editAction(kind: EditKind): void;
+  /** Open an ms-settings: deep link (validated in the Rust core). */
+  openSetting(uri: string): void;
 }
 
 export interface ShellProviderI {

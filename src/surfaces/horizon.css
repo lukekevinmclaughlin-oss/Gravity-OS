@@ -1,11 +1,10 @@
+/* Horizon — full-width 30px menu bar (spec §3). */
+
 .horizon {
   position: fixed;
-  top: 10px;
+  top: 0;
   left: 0;
   right: 0;
-  display: flex;
-  justify-content: space-between;
-  padding: 0 12px;
   pointer-events: none;
   z-index: 40;
 }
@@ -14,80 +13,91 @@
   inset: 0;
   pointer-events: auto;
 }
-.horizon__pill {
+.horizon__bar {
   position: relative;
   pointer-events: auto;
   display: flex;
   align-items: center;
-  height: 36px;
-  border-radius: var(--radius-pill);
-  padding: 0 7px;
-  gap: 1px;
+  height: var(--bar-h);
+  padding: 0 10px 0 6px;
+  gap: 0;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: none;
 }
+:root[data-theme="daybreak"] .horizon__bar {
+  border-bottom-color: rgba(29, 29, 33, 0.08);
+}
+
 .horizon__anchor {
   position: relative;
   display: inline-flex;
+  height: 100%;
+  align-items: center;
 }
-.horizon__pill button {
+.horizon__spacer {
+  flex: 1;
+}
+
+.horizon__bar button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: 9px;
-  color: var(--ink-dim);
-  transition: background var(--t-light) var(--ease-mass), color var(--t-light) var(--ease-mass);
-}
-.horizon__pill button:hover,
-.horizon__pill button.is-open {
-  background: var(--glass-bg-lift);
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 5px;
   color: var(--ink);
+  font: 500 var(--text-ui) var(--font-ui);
+  letter-spacing: var(--track-ui);
+  white-space: nowrap;
 }
+.horizon__bar button:hover,
+.horizon__bar button.is-open {
+  background: var(--glass-bg-lift);
+}
+.horizon__bar button.is-open {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 .horizon__gravity {
-  padding: 0 7px !important;
+  padding: 0 8px !important;
 }
 .horizon__app {
-  font: 600 13px var(--font-display);
-  padding: 0 9px 0 5px;
-  letter-spacing: 0.01em;
+  font-weight: 600 !important;
 }
-.horizon__menuBtn {
-  font: 500 13px var(--font-ui);
+.horizon__status.is-on {
+  color: var(--accent);
 }
-.horizon__statusPill .is-on {
-  color: var(--aurora);
+.horizon__status.is-on.is-open,
+.horizon__status.is-open {
+  color: var(--on-accent);
 }
-.horizon__statusPill .is-off {
+.horizon__status.is-off {
   opacity: 0.4;
 }
 .horizon__batt span {
-  font: 500 11.5px var(--font-ui);
+  font: 500 var(--text-cap) var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
 .horizon__clock {
-  font: 500 12.5px var(--font-ui);
-  color: var(--ink) !important;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
-/* Dropdowns */
+/* Dropdowns — appear instantly (no entrance animation: spec §11). */
 .hzMenu {
   position: absolute;
-  top: calc(100% + 12px);
+  top: calc(var(--bar-h) + 4px);
   left: 0;
-  min-width: 216px;
-  border-radius: 14px;
-  padding: 5px;
+  min-width: 220px;
+  border-radius: var(--radius-menu);
+  padding: 4px;
   z-index: 60;
-  transform-origin: top left;
-  animation: hzMenuDrop var(--t-med) var(--ease-mass);
 }
-@keyframes hzMenuDrop {
-  from {
-    opacity: 0;
-    transform: translateY(-7px) scale(0.97);
-  }
+.hzMenu--right {
+  left: auto;
+  right: 0;
 }
 .hzMenu__item {
   display: flex;
@@ -95,29 +105,70 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 7px 10px;
-  border-radius: 9px;
-  font: 400 13px var(--font-ui);
+  height: 24px;
+  padding: 0 9px !important;
+  border-radius: var(--radius-item) !important;
+  font: 400 var(--text-ui) var(--font-ui) !important;
   color: var(--ink);
   text-align: left;
   white-space: nowrap;
 }
 .hzMenu__item:hover:not(:disabled) {
-  background: linear-gradient(118deg, rgba(61, 240, 166, 0.92), rgba(43, 217, 199, 0.92));
-  color: #05130c;
+  background: var(--accent) !important;
+  color: var(--on-accent);
+}
+.hzMenu__item.is-danger:hover:not(:disabled) {
+  background: var(--danger) !important;
 }
 .hzMenu__item:disabled {
   color: var(--ink-faint);
 }
 .hzMenu__hint {
-  font-size: 11.5px;
+  font-size: var(--text-cap);
   color: var(--ink-faint);
 }
 .hzMenu__item:hover:not(:disabled) .hzMenu__hint {
-  color: rgba(5, 19, 12, 0.6);
+  color: rgba(255, 255, 255, 0.7);
 }
 .hzMenu__sep {
   height: 1px;
-  margin: 5px 9px;
+  margin: 4px 9px;
   background: var(--glass-border);
+}
+
+/* Power confirm sheet */
+.hzConfirm {
+  position: absolute;
+  top: calc(var(--bar-h) + 10px);
+  left: 12px;
+  pointer-events: auto;
+  width: 260px;
+  padding: 14px;
+  border-radius: var(--radius-panel);
+}
+.hzConfirm p {
+  margin: 0 0 12px;
+  font: 500 var(--text-ui) var(--font-ui);
+}
+.hzConfirm__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.hzConfirm__row button {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font: 500 var(--text-ui) var(--font-ui);
+}
+.hzConfirm__cancel {
+  background: var(--glass-bg-lift);
+  color: var(--ink);
+}
+.hzConfirm__go {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.hzConfirm__go:hover {
+  filter: brightness(1.1);
 }

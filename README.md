@@ -11,9 +11,10 @@ menu bar, a physics-driven dock, a command palette, an exposé, and a control
 centre. It installs and uninstalls cleanly, and always hands the desktop back to
 Explorer when removed.
 
-> Status: **v0.1**. The full UI is built and verified; the Rust core compiles on
-> the mock (non-Windows) path. Producing and runtime-testing the Windows
-> installer requires a Windows 11 host (see [Building on Windows](#building-the-windows-installer)).
+> Status: **v0.2 (macOS-parity P1)**. The design language moved from
+> "deliberately divergent" to **macOS grammar, Gravity ornament** — see
+> [docs/MACOS-PARITY-SPEC.md](docs/MACOS-PARITY-SPEC.md) for the full spec and
+> phase plan. The Rust core now compiles and runs natively on Windows 11.
 
 ---
 
@@ -36,8 +37,8 @@ Each has a Gravity name and an intentional twist away from its macOS ancestor.
 
 | Gravity surface | macOS analogue | The difference |
 |-----------------|----------------|----------------|
-| **Horizon** | Menu bar | Two floating pills (app menus • status), not a full-width strip. |
-| **Orbit** | Dock | Icons sit in a shallow arc and lean into the cursor's **gravity well**; running apps carry an orbital ring with a satellite, not a dot. |
+| **Horizon** | Menu bar | Full-width 30px bar; mouse-down menus with slide-track; the Gravity menu performs real session actions (sleep/restart/lock). |
+| **Orbit** | Dock | True 2.0× magnification with Gaussian falloff, 1:1 cursor-tracked; real app icons on hue-tinted squircle plates (monogram fallback). |
 | **Singularity** | Spotlight | Command palette: app search, actions, and a no-`eval` calculator (`+ - * / % ^`, parens). |
 | **Constellation** | Mission Control | Windows cluster by app along constellation lines; **Orbits** are the virtual desktops. |
 | **Core** | Control Center | Orbital toggles, inertial sliders, battery + brand. |

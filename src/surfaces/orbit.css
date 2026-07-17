@@ -1,98 +1,89 @@
+/* Orbit — the dock (spec §4). Width-based magnification: each item's width
+   is driven per-mousemove from JS; images fill their item, so growth is the
+   magnification. No transitions while live (1:1 tracking). */
+
 .orbit {
   position: fixed;
-  bottom: 10px;
+  bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 40;
   display: flex;
   align-items: flex-end;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 26px;
+  gap: 0;
+  padding: 7px 7px 6px;
+  border-radius: 22px;
 }
 
 .orbitItem {
   position: relative;
-  display: block;
-  padding: 0 3px;
-  will-change: transform;
-  transition: transform var(--t-heavy) var(--ease-mass);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 2px;
+  will-change: width;
+  /* Settle back over --t-med when the cursor leaves the shelf… */
+  transition: width var(--t-med) var(--ease-mass);
 }
+/* …but track 1:1 while the cursor is over it. */
 .orbit.is-live .orbitItem {
-  transition: transform 130ms cubic-bezier(0.25, 0.8, 0.35, 1);
+  transition: none;
 }
 
 .orbitItem__tileWrap {
   position: relative;
   display: block;
+  width: 100%;
 }
 .orbitItem__tileWrap.is-launching {
-  animation: orbitBounce 0.72s var(--ease-mass) infinite;
+  animation: orbitBounce 2.4s var(--ease-mass) infinite;
 }
+/* Decaying triple bounce, then a beat of rest (spec §4). */
 @keyframes orbitBounce {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  32% {
-    transform: translateY(-26px);
-  }
-  64% {
-    transform: translateY(-2px);
-  }
+  0%, 17.5%, 35%, 52.5%, 100% { transform: translateY(0); }
+  8.75%  { transform: translateY(-24px); }
+  26.25% { transform: translateY(-14px); }
+  43.75% { transform: translateY(-6px); }
 }
 
-/* Orbital running indicator: a ring with a satellite in transit */
-.orbitItem__ring {
-  position: absolute;
-  inset: -5px;
+/* Running indicator: 4px dot, 2px under the tile. */
+.orbitItem__dot {
+  width: 4px;
+  height: 4px;
+  margin-top: 2px;
   border-radius: 50%;
-  border: 1.5px solid rgba(61, 240, 166, 0.5);
-  pointer-events: none;
-  animation: satSpin 6s linear infinite;
+  background: transparent;
 }
-.orbitItem__satellite {
-  position: absolute;
-  top: -2.5px;
-  left: 50%;
-  width: 4.5px;
-  height: 4.5px;
-  margin-left: -2.25px;
-  border-radius: 50%;
-  background: var(--aurora);
-  box-shadow: 0 0 7px var(--aurora);
-}
-@keyframes satSpin {
-  to {
-    transform: rotate(360deg);
-  }
+.orbitItem__dot.is-running {
+  background: var(--ink-dim);
 }
 
-/* Hover label */
+/* Hover label: glass tooltip pill above the tile, 250ms delay, no motion. */
 .orbitItem__label {
   position: absolute;
-  bottom: calc(100% + 12px);
+  bottom: calc(100% + 10px);
   left: 50%;
-  transform: translateX(-50%) translateY(5px);
+  transform: translateX(-50%);
   opacity: 0;
   pointer-events: none;
   white-space: nowrap;
-  padding: 5px 11px;
-  border-radius: 9px;
-  font: 500 12px var(--font-ui);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font: 500 var(--text-ui) var(--font-ui);
+  letter-spacing: var(--track-ui);
   color: var(--ink);
-  transition: opacity var(--t-light) var(--ease-mass), transform var(--t-light) var(--ease-mass);
+  transition: opacity 1ms linear 250ms;
   z-index: 5;
 }
 .orbitItem:hover .orbitItem__label {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
 }
 
 .orbit__sep {
   width: 1px;
   align-self: stretch;
-  margin: 6px 7px;
+  margin: 4px 6px;
   background: linear-gradient(to bottom, transparent, var(--glass-border) 30%, var(--glass-border) 70%, transparent);
 }
 
@@ -100,9 +91,9 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 24%;
   background: var(--glass-bg-lift);
   border: 1px solid var(--glass-border);
   color: var(--ink-dim);
@@ -116,11 +107,10 @@
 }
 .orbit__trashDot {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 15%;
+  right: 15%;
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--aurora);
-  box-shadow: 0 0 6px var(--aurora);
+  background: var(--accent);
 }

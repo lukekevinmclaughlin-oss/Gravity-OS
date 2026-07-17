@@ -18,14 +18,18 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 parking_lot = "0.12"
+base64 = "0.22"
 
 # Windows-only system integration
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+tauri-plugin-global-shortcut = "2"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Shell",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
   "Win32_System_Power",
   "Win32_System_Com",
   "Win32_System_Threading",

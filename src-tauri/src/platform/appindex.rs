@@ -110,7 +110,12 @@ pub fn launch(app_id: &str) {
         return;
     };
     let Some(cmd) = &app.exe else { return };
-    let file = wide(cmd);
+    shell_open(cmd);
+}
+
+/// ShellExecute "open" on a path, exe name or URI.
+pub fn shell_open(target: &str) {
+    let file = wide(target);
     let op = wide("open");
     unsafe {
         ShellExecuteW(
@@ -121,6 +126,149 @@ pub fn launch(app_id: &str) {
             PCWSTR::null(),
             SW_SHOWNORMAL,
         );
+    }
+}
+
+// ---- Real app icons (spec §4) ------------------------------------------
+// The shell image factory resolves the correct icon for .lnk and .exe alike;
+// we hand the frontend a raw RGBA bitmap and it composes the squircle plate.
+
+pub struct IconData {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+pub fn icon_rgba(app_id: &str) -> Option<IconData> {
+    let app = index().iter().find(|a| a.id == app_id)?;
+    let cmd = app.exe.as_deref()?;
+    let path = resolve_icon_source(cmd)?;
+    extract_icon(&path)
+}
+
+/// Map a launch command to a filesystem path we can ask the shell to
+/// thumbnail: absolute paths pass through, bare exe names resolve via the
+/// App Paths registry then PATH; URI schemes have no file icon.
+fn resolve_icon_source(cmd: &str) -> Option<String> {
+    let p = Path::new(cmd);
+    if p.is_absolute() {
+        return p.exists().then(|| cmd.to_string());
+    }
+    // URI scheme (contains ':' but isn't a drive path) → no icon source.
+    if cmd.contains(':') {
+        return None;
+    }
+    app_paths_lookup(cmd).or_else(|| search_path(cmd))
+}
+
+fn app_paths_lookup(exe: &str) -> Option<String> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    let key = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(format!(
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}"
+        ))
+        .ok()?;
+    let path: String = key.get_value("").ok()?;
+    let path = path.trim_matches('"').to_string();
+    Path::new(&path).exists().then_some(path)
+}
+
+fn search_path(exe: &str) -> Option<String> {
+    use windows::Win32::Storage::FileSystem::SearchPathW;
+    let name = wide(exe);
+    let mut buf = vec![0u16; 512];
+    let len = unsafe {
+        SearchPathW(
+            PCWSTR::null(),
+            PCWSTR(name.as_ptr()),
+            PCWSTR::null(),
+            Some(&mut buf),
+            None,
+        )
+    };
+    (len > 0 && (len as usize) < buf.len())
+        .then(|| String::from_utf16_lossy(&buf[..len as usize]))
+}
+
+fn extract_icon(path: &str) -> Option<IconData> {
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::Graphics::Gdi::{
+        DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    };
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{
+        IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK,
+        SIIGBF_ICONONLY,
+    };
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let wpath = wide(path);
+        let factory: IShellItemImageFactory =
+            SHCreateItemFromParsingName(PCWSTR(wpath.as_ptr()), None).ok()?;
+        let hbmp = factory
+            .GetImage(SIZE { cx: 128, cy: 128 }, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK)
+            .ok()?;
+
+        let mut bm = BITMAP::default();
+        let got = GetObjectW(
+            hbmp,
+            std::mem::size_of::<BITMAP>() as i32,
+            Some(&mut bm as *mut _ as *mut c_void),
+        );
+        if got == 0 || bm.bmWidth <= 0 || bm.bmHeight <= 0 {
+            let _ = DeleteObject(hbmp);
+            return None;
+        }
+        let (w, h) = (bm.bmWidth, bm.bmHeight);
+
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h, // top-down
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let hdc = GetDC(HWND(std::ptr::null_mut()));
+        let lines = GetDIBits(
+            hdc,
+            hbmp,
+            0,
+            h as u32,
+            Some(buf.as_mut_ptr() as *mut c_void),
+            &mut info,
+            DIB_RGB_COLORS,
+        );
+        ReleaseDC(HWND(std::ptr::null_mut()), hdc);
+        let _ = DeleteObject(hbmp);
+        if lines == 0 {
+            return None;
+        }
+
+        // BGRA (premultiplied) → straight RGBA for canvas putImageData.
+        for px in buf.chunks_exact_mut(4) {
+            px.swap(0, 2);
+            let a = px[3] as u32;
+            if a > 0 && a < 255 {
+                px[0] = ((px[0] as u32 * 255) / a).min(255) as u8;
+                px[1] = ((px[1] as u32 * 255) / a).min(255) as u8;
+                px[2] = ((px[2] as u32 * 255) / a).min(255) as u8;
+            }
+        }
+
+        Some(IconData {
+            width: w as u32,
+            height: h as u32,
+            rgba: buf,
+        })
     }
 }
 

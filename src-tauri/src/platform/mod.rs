@@ -37,9 +37,11 @@ pub trait ShellPlatform: Send + Sync {
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-mod appindex;
+pub mod appindex;
 #[cfg(windows)]
 mod audio;
+#[cfg(windows)]
+pub mod input;
 #[cfg(windows)]
 pub mod shell_control;
 

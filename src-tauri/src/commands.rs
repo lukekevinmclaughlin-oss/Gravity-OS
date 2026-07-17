@@ -82,6 +82,91 @@ pub fn disengage_shell(state: State<AppState>) {
     state.platform.disengage_shell();
 }
 
+/// Extracted app icon as raw RGBA for the frontend to plate (spec §4).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppIconPayload {
+    pub width: u32,
+    pub height: u32,
+    /// base64-encoded straight-alpha RGBA, row-major
+    pub rgba: String,
+}
+
+#[tauri::command]
+pub fn get_app_icon(app_id: String) -> Option<AppIconPayload> {
+    #[cfg(windows)]
+    {
+        use base64::Engine;
+        crate::platform::appindex::icon_rgba(&app_id).map(|d| AppIconPayload {
+            width: d.width,
+            height: d.height,
+            rgba: base64::engine::general_purpose::STANDARD.encode(d.rgba),
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app_id;
+        None
+    }
+}
+
+/// Real session power verbs from the Gravity menu (spec §3). The UI shows
+/// its own confirmation for restart/shutdown before invoking this.
+#[tauri::command]
+pub fn power_action(kind: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let (exe, args): (&str, &[&str]) = match kind.as_str() {
+            "sleep" => ("rundll32.exe", &["powrprof.dll,SetSuspendState", "0,1,0"]),
+            "restart" => ("shutdown.exe", &["/r", "/t", "0"]),
+            "shutdown" => ("shutdown.exe", &["/s", "/t", "0"]),
+            "lock" => ("rundll32.exe", &["user32.dll,LockWorkStation"]),
+            _ => return Err(format!("unknown power action: {kind}")),
+        };
+        std::process::Command::new(exe)
+            .args(args)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = kind;
+        Ok(())
+    }
+}
+
+/// Synthesize a Ctrl edit chord into the focused foreign window (spec §3).
+#[tauri::command]
+pub fn edit_action(kind: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        crate::platform::input::edit_chord(&kind)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = kind;
+        Ok(())
+    }
+}
+
+/// Open a deep link. Whitelisted to ms-settings: so the webview cannot be
+/// used as an arbitrary-launch primitive.
+#[tauri::command]
+pub fn open_uri(uri: String) -> Result<(), String> {
+    if !uri.starts_with("ms-settings:") {
+        return Err("scheme not allowed".into());
+    }
+    #[cfg(windows)]
+    {
+        crate::platform::appindex::shell_open(&uri);
+    }
+    Ok(())
+}
+
 /// Enable/disable full shell replacement (per-user Winlogon shell).
 /// No-op off Windows.
 #[tauri::command]

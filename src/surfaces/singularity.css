@@ -1,3 +1,6 @@
+/* Spotlight grammar (spec §5): the panel materializes instantly —
+   no entrance animation on open; only the close is a quick fade (handled
+   by unmount). 680px wide, top edge at 26% of the screen. */
 .sing {
   position: fixed;
   inset: 0;
@@ -5,28 +8,13 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 22vh;
-  background: rgba(2, 4, 10, 0.22);
-  animation: singFade var(--t-med) var(--ease-mass);
-}
-@keyframes singFade {
-  from {
-    opacity: 0;
-  }
+  padding-top: 26vh;
 }
 .sing__panel {
   position: relative;
-  width: min(640px, calc(100vw - 48px));
-  border-radius: 24px;
+  width: min(680px, calc(100vw - 48px));
+  border-radius: var(--radius-panel);
   overflow: hidden;
-  animation: singDrop var(--t-heavy) var(--ease-mass);
-  transform-origin: center -40px;
-}
-@keyframes singDrop {
-  from {
-    opacity: 0;
-    transform: translateY(-14px) scale(0.965);
-  }
 }
 .sing__inputRow {
   display: flex;
@@ -40,9 +28,9 @@
   background: none;
   border: none;
   outline: none;
-  font: 500 21px var(--font-display);
+  font: 300 22px var(--font-ui);
   color: var(--ink);
-  letter-spacing: 0.005em;
+  letter-spacing: -0.2px;
 }
 .sing__inputRow input::placeholder {
   color: var(--ink-faint);
@@ -58,41 +46,42 @@
   width: 100%;
   align-items: center;
   gap: 12px;
-  padding: 8px 11px;
-  border-radius: 12px;
+  height: 44px;
+  padding: 0 11px;
+  border-radius: 8px;
   text-align: left;
 }
 .sing__item.is-sel {
-  background: linear-gradient(118deg, rgba(61, 240, 166, 0.92), rgba(43, 217, 199, 0.92));
+  background: var(--accent);
 }
 .sing__title {
-  font: 500 14px var(--font-ui);
+  font: 500 var(--text-ui) var(--font-ui);
   color: var(--ink);
 }
 .sing__sub {
   margin-left: auto;
-  font: 400 12px var(--font-ui);
+  font: 400 var(--text-cap) var(--font-ui);
   color: var(--ink-faint);
 }
 .sing__item.is-sel .sing__title {
-  color: #05130c;
+  color: var(--on-accent);
 }
 .sing__item.is-sel .sing__sub {
-  color: rgba(5, 19, 12, 0.6);
+  color: rgba(255, 255, 255, 0.7);
 }
 .sing__actIcon {
   display: grid;
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--glass-bg-lift);
   border: 1px solid var(--glass-border);
   color: var(--ink-dim);
 }
 .sing__item.is-sel .sing__actIcon {
-  color: #05130c;
-  border-color: rgba(5, 19, 12, 0.25);
+  color: var(--on-accent);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 .sing__item.is-calc {
   padding: 14px 13px;
@@ -102,15 +91,16 @@
   color: var(--ink-faint);
 }
 .sing__item.is-sel .sing__calcExpr {
-  color: rgba(5, 19, 12, 0.6);
+  color: rgba(255, 255, 255, 0.7);
 }
 .sing__calcVal {
   margin-left: auto;
-  font: 600 24px var(--font-display);
-  color: var(--aurora);
+  font: 600 24px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
 }
 .sing__item.is-sel .sing__calcVal {
-  color: #05130c;
+  color: var(--on-accent);
 }
 .sing__foot {
   display: flex;

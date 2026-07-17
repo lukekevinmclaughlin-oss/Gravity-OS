@@ -1,96 +1,111 @@
 /* ============================================================
-   Gravity OS design tokens — "Everything has mass"
-   Material: Graviton glass (deep smoked glass, lensing edges)
-   Motion:   mass-based springs (light = snappy, heavy = damped)
+   Gravity OS design tokens — v2 "macOS-parity" system
+   (docs/MACOS-PARITY-SPEC.md)
+
+   Grammar: neutral chrome, one grotesque at 13px, real materials.
+   Ornament: Gravity's own — accent set, lensing edge, Deep Field.
+   Variable NAMES are stable from v1 so all surfaces retoken.
    ============================================================ */
 
 :root {
-  /* Type */
-  --font-display: "Space Grotesk", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Type — all UI is Inter at 13px; Space Grotesk is brand-only. */
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: "Space Grotesk", var(--font-ui);
+  --font-display: var(--font-ui); /* v1 alias: display type is now UI type */
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+  --text-ui: 13px;
+  --text-cap: 11px;
+  --track-ui: -0.08px;
 
-  /* Deep-space neutrals (near-black blues, never pure gray) */
-  --bg-deep: #070b15;
-  --bg-nebula: #0b1122;
-  --ink: #e9edf6;
-  --ink-dim: rgba(233, 237, 246, 0.64);
-  --ink-faint: rgba(233, 237, 246, 0.38);
-  --ink-ghost: rgba(233, 237, 246, 0.2);
+  /* Neutral chrome (color lives in the wallpaper, not the panels) */
+  --bg-deep: #101014;
+  --bg-nebula: #16161b;
+  --ink: #f2f2f5;
+  --ink-dim: rgba(242, 242, 245, 0.62);
+  --ink-faint: rgba(242, 242, 245, 0.38);
+  --ink-ghost: rgba(242, 242, 245, 0.18);
 
-  /* Signature accent: Gravity aurora */
-  --aurora: #3df0a6;
-  --aurora-deep: #19c98a;
-  --aurora-cool: #2bd9c7;
+  /* Accent — "Graviton Blue" default; the aurora names are kept as
+     aliases so v1 surfaces re-accent without edits. */
+  --accent: #3a7bfd;
+  --accent-soft: rgba(58, 123, 253, 0.28);
+  --on-accent: #ffffff;
+  --aurora: var(--accent);
+  --aurora-deep: #2f68e0;
+  --aurora-cool: #4a8bff;
   --aurora-far: #7a8cff;
-  --aurora-grad: linear-gradient(118deg, #3df0a6 0%, #2bd9c7 52%, #7a8cff 115%);
-  --danger: #ff5d73;
-  --warn: #ffc466;
+  --aurora-grad: linear-gradient(118deg, #3a7bfd, #4a8bff);
+  --danger: #f4573f;
+  --warn: #e0a52e;
+  --ok: #31c48d;
 
-  /* Graviton glass */
-  --glass-bg: rgba(13, 17, 31, 0.55);
-  --glass-bg-heavy: rgba(10, 13, 25, 0.74);
-  --glass-bg-lift: rgba(233, 237, 246, 0.06);
-  --glass-border: rgba(255, 255, 255, 0.09);
-  --glass-highlight: rgba(255, 255, 255, 0.14);
-  --glass-blur: 28px;
-  --shadow-float: 0 24px 60px rgba(2, 4, 10, 0.55), 0 3px 12px rgba(2, 4, 10, 0.4);
-  --shadow-hover: 0 30px 80px rgba(2, 4, 10, 0.6), 0 4px 16px rgba(2, 4, 10, 0.45);
+  /* Materials (dark). Fill + blur pairs per surface class. */
+  --glass-bg: rgba(29, 29, 33, 0.55);
+  --glass-bg-heavy: rgba(37, 37, 42, 0.62);
+  --glass-bg-lift: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-blur: 36px;
+  --shadow-float: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 16px 56px rgba(0, 0, 0, 0.42), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
 
-  /* Radii */
-  --radius-panel: 22px;
-  --radius-card: 16px;
-  --radius-tile: 14px;
+  /* Radii — panel 16, menu 10, menu item 6, tiles superellipse-ish */
+  --radius-panel: 16px;
+  --radius-card: 12px;
+  --radius-menu: 10px;
+  --radius-item: 6px;
+  --radius-tile: 12px;
   --radius-pill: 999px;
 
-  /* Mass-based motion. Light objects snap, heavy objects settle. */
-  --ease-mass: cubic-bezier(0.22, 0.9, 0.24, 1);
+  /* Motion dictionary (spec §11): in = spring-settle, out = quick fade,
+     menus appear instantly. */
+  --ease-mass: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-fall: cubic-bezier(0.5, 0, 0.9, 0.4);
-  --t-light: 160ms;
-  --t-med: 280ms;
-  --t-heavy: 460ms;
+  --t-light: 150ms;
+  --t-med: 250ms;
+  --t-heavy: 350ms;
 
-  /* Focus ring */
-  --ring: 0 0 0 2px rgba(61, 240, 166, 0.55);
+  --ring: 0 0 0 3.5px rgba(58, 123, 253, 0.4);
+
+  /* Shell geometry */
+  --bar-h: 30px;
+  --dock-tile: 48px;
 }
 
-/* Daybreak (light) variant — same physics, sunlit material */
+/* Daybreak (light) — mirrors the dark material table at white alphas */
 :root[data-theme="daybreak"] {
-  --bg-deep: #e8ecf4;
-  --bg-nebula: #dde4f0;
-  --ink: #10141f;
-  --ink-dim: rgba(16, 20, 31, 0.66);
-  --ink-faint: rgba(16, 20, 31, 0.4);
-  --ink-ghost: rgba(16, 20, 31, 0.22);
-  --glass-bg: rgba(245, 248, 253, 0.6);
-  --glass-bg-heavy: rgba(240, 244, 251, 0.78);
-  --glass-bg-lift: rgba(16, 20, 31, 0.05);
-  --glass-border: rgba(16, 20, 31, 0.1);
-  --glass-highlight: rgba(255, 255, 255, 0.65);
-  --shadow-float: 0 24px 60px rgba(30, 40, 70, 0.22), 0 3px 12px rgba(30, 40, 70, 0.14);
-  --shadow-hover: 0 30px 80px rgba(30, 40, 70, 0.28), 0 4px 16px rgba(30, 40, 70, 0.18);
+  --bg-deep: #eceef2;
+  --bg-nebula: #e2e5ec;
+  --ink: #1d1d21;
+  --ink-dim: rgba(29, 29, 33, 0.62);
+  --ink-faint: rgba(29, 29, 33, 0.4);
+  --ink-ghost: rgba(29, 29, 33, 0.2);
+  --glass-bg: rgba(246, 246, 248, 0.6);
+  --glass-bg-heavy: rgba(246, 246, 248, 0.72);
+  --glass-bg-lift: rgba(29, 29, 33, 0.06);
+  --glass-border: rgba(29, 29, 33, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --shadow-float: 0 10px 40px rgba(20, 25, 40, 0.18), 0 0 0 0.5px rgba(20, 25, 40, 0.16);
+  --shadow-hover: 0 16px 56px rgba(20, 25, 40, 0.24), 0 0 0 0.5px rgba(20, 25, 40, 0.16);
 }
 
-/* ---- Graviton glass material ---- */
+/* ---- Materials ---- */
 .glass {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--glass-highlight);
 }
 .glass-heavy {
   background: var(--glass-bg-heavy);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(160%);
-  backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(160%);
+  -webkit-backdrop-filter: blur(50px) saturate(180%);
+  backdrop-filter: blur(50px) saturate(180%);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--glass-highlight);
 }
 
-/* Lensing edge: light bends around massive panels. Apply with .glass.
-   Note: .lens deliberately does NOT set `position` — the host element owns
-   its own positioning (fixed/relative/absolute all establish the containing
-   block the ::after needs). Forcing position here would clobber fixed docks. */
+/* Lensing edge — Gravity's signature, kept from v1 (subtler, neutralized) */
 .lens::after {
   content: "";
   position: absolute;
@@ -98,8 +113,8 @@
   border-radius: inherit;
   pointer-events: none;
   background:
-    radial-gradient(120% 90% at 50% -20%, rgba(122, 140, 255, 0.12), transparent 55%),
-    radial-gradient(140% 100% at 50% 120%, rgba(61, 240, 166, 0.08), transparent 60%);
+    radial-gradient(120% 90% at 50% -20%, rgba(160, 175, 255, 0.09), transparent 55%),
+    radial-gradient(140% 100% at 50% 120%, rgba(255, 255, 255, 0.05), transparent 60%);
   mix-blend-mode: screen;
 }
 
@@ -110,6 +125,6 @@
   background: var(--glass-bg-lift);
   border: 1px solid var(--glass-border);
   border-bottom-width: 2px;
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 3px 6px 2px;
 }

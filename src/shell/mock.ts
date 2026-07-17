@@ -176,5 +176,8 @@ export class MockShell implements ShellProviderI {
     },
     switchOrbit: (id) => this.emit({ activeOrbit: id }),
     emptyTrash: () => this.patchStatus({ trashFull: false }),
+    powerAction: (kind) => this.notify("Gravity", "Power", `“${kind}” is simulated on the mock machine.`),
+    editAction: () => {},
+    openSetting: (uri) => this.notify("Gravity", "Settings", `Would open ${uri} on Windows.`),
   };
 }
