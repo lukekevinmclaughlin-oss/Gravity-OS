@@ -70,6 +70,10 @@
 .horizon__status.is-on {
   color: var(--accent);
 }
+
+.horizon__appearance {
+  color: var(--warn);
+}
 .horizon__status.is-on.is-open,
 .horizon__status.is-open {
   color: var(--on-accent);
@@ -94,6 +98,9 @@
   border-radius: var(--radius-menu);
   padding: 4px;
   z-index: 60;
+  max-height: calc(100vh - var(--bar-h) - 14px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .hzMenu--right {
   left: auto;
@@ -171,4 +178,24 @@
 }
 .hzConfirm__go:hover {
   filter: brightness(1.1);
+}
+
+.hzToast {
+  position: fixed;
+  top: 48px;
+  left: 50%;
+  z-index: 40;
+  max-width: min(480px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--stroke));
+  border-radius: 13px;
+  color: var(--text-primary);
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+  animation: hz-toast-in 180ms var(--ease-out) both;
+}
+
+@keyframes hz-toast-in {
+  from { opacity: 0; transform: translate(-50%, -5px) scale(.98); }
 }

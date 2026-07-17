@@ -112,7 +112,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         sub: "Silence Pulse notifications",
         icon: <MoonIcon size={17} />,
         run: () => {
-          actions.toggleSetting("focus");
+          void actions.toggleSetting("focus");
           onClose();
         },
       },
@@ -124,6 +124,50 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         icon: <SunIcon size={17} />,
         run: () => {
           onToggleTheme?.();
+          onClose();
+        },
+      },
+      {
+        id: "act-window-left",
+        kind: "action",
+        title: "Window: Left Half",
+        sub: "Cycle between half, two-thirds, and one-third",
+        icon: <ConstellationIcon size={17} />,
+        run: () => {
+          void actions.windowAction("left-half");
+          onClose();
+        },
+      },
+      {
+        id: "act-window-right",
+        kind: "action",
+        title: "Window: Right Half",
+        sub: "Cycle between half, two-thirds, and one-third",
+        icon: <ConstellationIcon size={17} />,
+        run: () => {
+          void actions.windowAction("right-half");
+          onClose();
+        },
+      },
+      {
+        id: "act-window-arrange",
+        kind: "action",
+        title: "Arrange Windows on This Display",
+        sub: "Create a balanced, gap-aware grid",
+        icon: <ConstellationIcon size={17} />,
+        run: () => {
+          void actions.windowAction("arrange-display");
+          onClose();
+        },
+      },
+      {
+        id: "act-window-gather",
+        kind: "action",
+        title: "Gather All Windows Here",
+        sub: "Bring every window to the active display",
+        icon: <ConstellationIcon size={17} />,
+        run: () => {
+          void actions.windowAction("gather-all");
           onClose();
         },
       },

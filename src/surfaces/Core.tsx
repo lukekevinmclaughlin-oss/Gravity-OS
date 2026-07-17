@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useShell } from "../shell/context";
 import {
   BatteryIcon,
@@ -29,6 +30,13 @@ interface ToggleSpec {
 
 export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
   const { state, actions } = useShell();
+  const [error, setError] = useState<string | null>(null);
+  const [brightnessPreview, setBrightnessPreview] = useState(
+    () => state.status.brightness ?? 0.5
+  );
+  useEffect(() => {
+    if (state.status.brightness !== null) setBrightnessPreview(state.status.brightness);
+  }, [state.status.brightness]);
   if (!open) return null;
 
   const s = state.status;
@@ -65,7 +73,11 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
 
   const fire = (key: ToggleSpec["key"]) => {
     if (key === "theme") onToggleTheme?.();
-    else actions.toggleSetting(key);
+    else void actions.toggleSetting(key).catch((reason) => setError(String(reason)));
+  };
+
+  const commitBrightness = () => {
+    void actions.setBrightness(brightnessPreview).catch((reason) => setError(String(reason)));
   };
 
   const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -111,10 +123,12 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
               type="range"
               min={0}
               max={100}
-              value={Math.round(s.brightness * 100)}
-              onChange={(e) => actions.setBrightness(Number(e.target.value) / 100)}
-              style={{ "--fill": pct(s.brightness) } as React.CSSProperties}
-            />
+            value={Math.round(brightnessPreview * 100)}
+            onChange={(e) => setBrightnessPreview(Number(e.target.value) / 100)}
+            onPointerUp={commitBrightness}
+            onKeyUp={commitBrightness}
+            style={{ "--fill": pct(brightnessPreview) } as React.CSSProperties}
+          />
           </div>
         )}
 
@@ -125,8 +139,13 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
               {s.batteryPercent}%{s.charging ? " · charging" : ""}
             </span>
           )}
-          <span className="core__brand">Gravity OS 0.2 · Deep Field</span>
+          <span className="core__brand">Gravity OS 1.0 · Deep Field</span>
         </div>
+        {error && (
+          <button className="core__error" onClick={() => setError(null)} role="alert">
+            {error}
+          </button>
+        )}
       </div>
     </>
   );

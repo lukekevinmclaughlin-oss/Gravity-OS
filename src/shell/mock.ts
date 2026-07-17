@@ -74,6 +74,8 @@ export class MockShell implements ShellProviderI {
     ],
     activeOrbit: "o1",
     notifications: [],
+    appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
+    windowing: { gap: 10, cycling: true, scenes: [], rules: [] },
   };
 
   constructor() {
@@ -142,11 +144,13 @@ export class MockShell implements ShellProviderI {
     closeWindow: (id) => {
       this.emit({ windows: this.state.windows.filter((w) => w.id !== id) });
     },
-    launchApp: (appId) => {
+    windowAction: async () => {},
+    windowActionFor: async () => {},
+    launchApp: async (appId) => {
       const open = this.state.windows.filter((w) => w.appId === appId);
       if (open.length > 0) {
         this.actions.focusWindow(open[0].id);
-        return;
+        return { appId, accepted: true };
       }
       const appName = this.state.apps.find((a) => a.id === appId)?.name ?? appId;
       // Launch latency: the icon gets time to bounce.
@@ -158,10 +162,64 @@ export class MockShell implements ShellProviderI {
           ],
         });
       }, 650);
+      return { appId, accepted: true };
+    },
+    setAppPinned: async (appId, pinned) => {
+      this.emit({
+        apps: this.state.apps.map((item) =>
+          item.id === appId ? { ...item, pinned } : item
+        ),
+      });
+    },
+    reorderPinnedApps: async (appIds) => {
+      const order = new Map(appIds.map((id, index) => [id, index]));
+      this.emit({
+        apps: [...this.state.apps].sort((a, b) => {
+          const ai = order.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+          const bi = order.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+          return ai - bi;
+        }),
+      });
+    },
+    setAppearance: async (mode) => {
+      const resolved = mode === "system" ? "dark" : mode;
+      this.emit({ appearance: { ...this.state.appearance, mode, resolved } });
+    },
+    setWallpaper: async (wallpaperId) => {
+      this.emit({ appearance: { ...this.state.appearance, wallpaperId } });
+    },
+    setWindowPreferences: async (gap, cycling) => {
+      this.emit({ windowing: { ...this.state.windowing, gap, cycling } });
+    },
+    captureScene: async (name) => {
+      const scene = {
+        id: `scene-${Date.now()}`,
+        name,
+        createdAt: Math.floor(Date.now() / 1000),
+        windows: this.state.windows.map((window) => ({
+          appId: window.appId,
+          title: window.title,
+          frame: { x: 0.1, y: 0.1, width: 0.8, height: 0.8, monitorIndex: 0 },
+        })),
+      };
+      this.emit({ windowing: { ...this.state.windowing, scenes: [...this.state.windowing.scenes, scene] } });
+      return scene;
+    },
+    restoreScene: async () => {},
+    deleteScene: async (sceneId) => {
+      this.emit({ windowing: { ...this.state.windowing, scenes: this.state.windowing.scenes.filter((scene) => scene.id !== sceneId) } });
+    },
+    upsertWindowRule: async (appId, action, enabled) => {
+      const app = this.state.apps.find((item) => item.id === appId);
+      const rule = { id: `rule-${appId}`, appId, appName: app?.name ?? appId, action, enabled };
+      this.emit({ windowing: { ...this.state.windowing, rules: [...this.state.windowing.rules.filter((item) => item.id !== rule.id), rule] } });
+    },
+    deleteWindowRule: async (ruleId) => {
+      this.emit({ windowing: { ...this.state.windowing, rules: this.state.windowing.rules.filter((rule) => rule.id !== ruleId) } });
     },
     setVolume: (v) => this.patchStatus({ volume: Math.min(1, Math.max(0, v)) }),
-    setBrightness: (v) => this.patchStatus({ brightness: Math.min(1, Math.max(0, v)) }),
-    toggleSetting: (key: ToggleKey) => {
+    setBrightness: async (v) => this.patchStatus({ brightness: Math.min(1, Math.max(0, v)) }),
+    toggleSetting: async (key: ToggleKey) => {
       if (key === "wifi") {
         const online = !this.state.status.online;
         this.patchStatus({ online, network: online ? "Deep Field 5G" : null });
@@ -175,6 +233,13 @@ export class MockShell implements ShellProviderI {
       this.emit({ notifications: this.state.notifications.filter((n) => n.id !== id) });
     },
     switchOrbit: (id) => this.emit({ activeOrbit: id }),
+    moveWindowToOrbit: async (windowId, orbitId) => {
+      this.emit({
+        windows: this.state.windows.map((window) =>
+          window.id === windowId ? { ...window, orbitId } : window
+        ),
+      });
+    },
     emptyTrash: () => this.patchStatus({ trashFull: false }),
     powerAction: (kind) => this.notify("Gravity", "Power", `“${kind}” is simulated on the mock machine.`),
     editAction: () => {},

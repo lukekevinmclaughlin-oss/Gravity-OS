@@ -7,6 +7,9 @@ import { Singularity } from "./Singularity";
 import { Core } from "./Core";
 import { Constellation } from "./Constellation";
 import { Pulse } from "./Pulse";
+import { WindowStudio } from "./WindowStudio";
+import { AppLibrary } from "./AppLibrary";
+import { useShell } from "../shell/context";
 import "./stage.css";
 
 /** Stage — the composed desktop. On macOS this is the dev harness with the
@@ -14,18 +17,18 @@ import "./stage.css";
  *  transparent Tauri window (see src-tauri). */
 
 export function Stage() {
+  const { state, actions } = useShell();
   const [singOpen, setSingOpen] = useState(false);
   const [coreOpen, setCoreOpen] = useState(false);
   const [constOpen, setConstOpen] = useState(false);
-  const [daybreak, setDaybreak] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const daybreak = state.appearance.resolved === "light";
 
-  useEffect(() => {
-    const root = document.documentElement;
-    if (daybreak) root.dataset.theme = "daybreak";
-    else delete root.dataset.theme;
-  }, [daybreak]);
-
-  const toggleTheme = useCallback(() => setDaybreak((d) => !d), []);
+  const toggleTheme = useCallback(
+    () => void actions.setAppearance(daybreak ? "dark" : "light"),
+    [actions, daybreak]
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -34,15 +37,21 @@ export function Stage() {
         setSingOpen((o) => !o);
         setCoreOpen(false);
         setConstOpen(false);
+        setStudioOpen(false);
+        setLibraryOpen(false);
       } else if (e.key === "F3") {
         e.preventDefault();
         setConstOpen((o) => !o);
         setSingOpen(false);
         setCoreOpen(false);
+        setStudioOpen(false);
+        setLibraryOpen(false);
       } else if (e.key === "Escape") {
         setSingOpen(false);
         setCoreOpen(false);
         setConstOpen(false);
+        setStudioOpen(false);
+        setLibraryOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -58,11 +67,14 @@ export function Stage() {
         onOpenConstellation={() => setConstOpen(true)}
         onOpenSingularity={() => setSingOpen(true)}
         onToggleTheme={toggleTheme}
+        onOpenWindowStudio={() => setStudioOpen(true)}
       />
-      <Orbit />
+      <Orbit onOpenAppLibrary={() => setLibraryOpen(true)} />
       <Pulse />
       <Core open={coreOpen} onClose={() => setCoreOpen(false)} onToggleTheme={toggleTheme} daybreak={daybreak} />
       <Constellation open={constOpen} onClose={() => setConstOpen(false)} />
+      <WindowStudio open={studioOpen} onClose={() => setStudioOpen(false)} />
+      <AppLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)} />
       <Singularity
         open={singOpen}
         onClose={() => setSingOpen(false)}

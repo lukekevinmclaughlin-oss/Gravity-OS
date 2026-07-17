@@ -1,5 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import { mulberry32 } from "../lib/rng";
+import { WALLPAPERS, wallpaperSource } from "../lib/wallpapers";
+import { useShell } from "../shell/context";
+import type { AppearanceMode } from "../shell/types";
+import "./deepfield.css";
 
 /** Deep Field — Gravity's live generative wallpaper.
  *  Perf model (spec §13): the base sky, lensing rings and vignette are static
@@ -17,7 +22,7 @@ interface Star {
 
 const AURORA_INTERVAL = 400; // ms between aurora layer refreshes
 
-export function DeepField() {
+function LiveDeepField({ light }: { light: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -39,9 +44,9 @@ export function DeepField() {
       const c = base.getContext("2d")!;
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       const g = c.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, "#05070f");
-      g.addColorStop(0.55, "#070b16");
-      g.addColorStop(1, "#0a1020");
+      g.addColorStop(0, light ? "#d8e4ec" : "#05070f");
+      g.addColorStop(0.55, light ? "#c9dde3" : "#070b16");
+      g.addColorStop(1, light ? "#eef0ec" : "#0a1020");
       c.fillStyle = g;
       c.fillRect(0, 0, w, h);
 
@@ -51,7 +56,9 @@ export function DeepField() {
       c.lineWidth = 1;
       for (let k = 0; k < 3; k++) {
         const rr = w * (0.09 + k * 0.055);
-        c.strokeStyle = `rgba(180, 200, 255, ${0.05 - k * 0.012})`;
+        c.strokeStyle = light
+          ? `rgba(66, 93, 132, ${0.12 - k * 0.02})`
+          : `rgba(180, 200, 255, ${0.05 - k * 0.012})`;
         c.beginPath();
         c.ellipse(mx, my, rr, rr * 0.62, -0.5, 0, Math.PI * 2);
         c.stroke();
@@ -63,11 +70,17 @@ export function DeepField() {
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.clearRect(0, 0, w, h);
       c.globalCompositeOperation = "lighter";
-      const ribbons: Array<[number, number, number, string]> = [
-        [w * (0.28 + 0.05 * Math.sin(t * 0.021)), h * 0.78, w * 0.5, "rgba(25, 201, 138, 0.16)"],
-        [w * (0.72 + 0.04 * Math.cos(t * 0.017)), h * 0.24, w * 0.46, "rgba(43, 217, 199, 0.10)"],
-        [w * (0.55 + 0.06 * Math.sin(t * 0.013 + 2)), h * 0.55, w * 0.6, "rgba(122, 140, 255, 0.09)"],
-      ];
+      const ribbons: Array<[number, number, number, string]> = light
+        ? [
+            [w * (0.28 + 0.05 * Math.sin(t * 0.021)), h * 0.78, w * 0.5, "rgba(40, 165, 143, 0.17)"],
+            [w * (0.72 + 0.04 * Math.cos(t * 0.017)), h * 0.24, w * 0.46, "rgba(82, 144, 190, 0.14)"],
+            [w * (0.55 + 0.06 * Math.sin(t * 0.013 + 2)), h * 0.55, w * 0.6, "rgba(167, 125, 190, 0.1)"],
+          ]
+        : [
+            [w * (0.28 + 0.05 * Math.sin(t * 0.021)), h * 0.78, w * 0.5, "rgba(25, 201, 138, 0.16)"],
+            [w * (0.72 + 0.04 * Math.cos(t * 0.017)), h * 0.24, w * 0.46, "rgba(43, 217, 199, 0.10)"],
+            [w * (0.55 + 0.06 * Math.sin(t * 0.013 + 2)), h * 0.55, w * 0.6, "rgba(122, 140, 255, 0.09)"],
+          ];
       for (const [cx, cy, r, color] of ribbons) {
         const g = c.createRadialGradient(cx, cy, 0, cx, cy, r);
         g.addColorStop(0, color);
@@ -83,7 +96,7 @@ export function DeepField() {
       c.clearRect(0, 0, w, h);
       const vg = c.createRadialGradient(w / 2, h * 0.45, h * 0.3, w / 2, h * 0.55, h * 0.95);
       vg.addColorStop(0, "transparent");
-      vg.addColorStop(1, "rgba(2, 4, 10, 0.5)");
+      vg.addColorStop(1, light ? "rgba(83, 105, 126, 0.18)" : "rgba(2, 4, 10, 0.5)");
       c.fillStyle = vg;
       c.fillRect(0, 0, w, h);
     };
@@ -130,7 +143,7 @@ export function DeepField() {
       ctx.globalCompositeOperation = "lighter";
       for (const s of stars) {
         const a = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(t * s.speed + s.phase));
-        ctx.fillStyle = `rgba(226, 234, 255, ${a})`;
+        ctx.fillStyle = light ? `rgba(64, 91, 118, ${a * 0.45})` : `rgba(226, 234, 255, ${a})`;
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx.fill();
@@ -146,12 +159,116 @@ export function DeepField() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, []);
+  }, [light]);
 
   return (
     <canvas
       ref={ref}
-      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+      className="deepField__live"
     />
+  );
+}
+
+interface DesktopMenuState {
+  x: number;
+  y: number;
+}
+
+export function DeepField() {
+  const { state, actions } = useShell();
+  const [menu, setMenu] = useState<DesktopMenuState | null>(null);
+  const selected =
+    WALLPAPERS.find((wallpaper) => wallpaper.id === state.appearance.wallpaperId) ?? WALLPAPERS[0];
+  const source = wallpaperSource(selected, state.appearance.resolved);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu]);
+
+  const openMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    setMenu({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 340)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 330)),
+    });
+  };
+
+  const chooseAppearance = async (mode: AppearanceMode) => {
+    await actions.setAppearance(mode);
+    setMenu(null);
+  };
+
+  return (
+    <div className="deepField" onContextMenu={openMenu}>
+      {source ? (
+        <div className="deepField__image" style={{ backgroundImage: `url(${source})` }} />
+      ) : (
+        <LiveDeepField light={state.appearance.resolved === "light"} />
+      )}
+
+      {menu && (
+        <>
+          <button className="desktopMenuDismiss" aria-label="Close desktop menu" onClick={() => setMenu(null)} />
+          <div
+            className="desktopMenu glass-heavy"
+            role="menu"
+            aria-label="Desktop quick settings"
+            style={{ left: menu.x, top: menu.y }}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <div className="desktopMenu__heading">Appearance</div>
+            <div className="desktopMenu__appearance">
+              {(["system", "light", "dark"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={state.appearance.mode === mode ? "is-selected" : ""}
+                  role="menuitemradio"
+                  aria-checked={state.appearance.mode === mode}
+                  onClick={() => void chooseAppearance(mode)}
+                >
+                  {mode[0].toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            <div className="desktopMenu__heading">Wallpaper</div>
+            <div className="desktopMenu__wallpapers">
+              {WALLPAPERS.map((wallpaper) => {
+                const previewSource = wallpaperSource(wallpaper, state.appearance.resolved);
+                return (
+                  <button
+                    key={wallpaper.id}
+                    className="wallpaperChoice"
+                    role="menuitemradio"
+                    aria-checked={wallpaper.id === selected.id}
+                    onClick={() => {
+                      void actions.setWallpaper(wallpaper.id);
+                      setMenu(null);
+                    }}
+                  >
+                    <span
+                      className="wallpaperChoice__preview"
+                      style={{ backgroundImage: previewSource ? `url(${previewSource})` : wallpaper.preview }}
+                    />
+                    <span className="wallpaperChoice__copy">
+                      <span className="wallpaperChoice__name">{wallpaper.name}</span>
+                      <span className="wallpaperChoice__description">{wallpaper.description}</span>
+                    </span>
+                    <span className="wallpaperChoice__check">
+                      {wallpaper.id === selected.id ? "✓" : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

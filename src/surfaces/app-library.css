@@ -1,0 +1,34 @@
+.appLibrary {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow: auto;
+  padding: 58px clamp(28px, 7vw, 110px) 90px;
+  background: color-mix(in srgb, var(--deepfield) 57%, transparent);
+  backdrop-filter: blur(34px) saturate(125%);
+  animation: library-in 260ms var(--ease-mass) both;
+}
+
+.appLibrary__top { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 1fr minmax(260px, 420px) 1fr; align-items: center; gap: 20px; margin-bottom: 38px; }
+.appLibrary__top h1 { margin: 0; color: var(--ink); font: 650 24px var(--font-display); text-shadow: 0 2px 16px rgba(0,0,0,.3); }
+.appLibrary__search { height: 39px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 13px; color: var(--ink-faint); }
+.appLibrary__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: 12px var(--font-ui); }
+.appLibrary__search button { color: var(--ink-faint); font-size: 18px; }
+.appLibrary__close { justify-self: end; padding: 8px 16px; border-radius: 12px; color: var(--ink); font: 600 11.5px var(--font-ui); }
+
+.appLibrary__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(94px, 1fr)); gap: 30px 22px; max-width: 1260px; margin: 0 auto; }
+.appLibrary__grid article { position: relative; min-width: 0; border-radius: 17px; transition: transform 180ms var(--ease-out), background 180ms; }
+.appLibrary__grid article:hover { transform: translateY(-3px); background: color-mix(in srgb, var(--glass-bg-hover) 55%, transparent); }
+.appLibrary__launch { width: 100%; display: grid; justify-items: center; gap: 9px; padding: 9px 5px 10px; color: var(--ink); font: 500 11.5px var(--font-ui); }
+.appLibrary__launch > span:last-child { width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-shadow: 0 1px 8px rgba(0,0,0,.4); }
+.appLibrary__tile { width: 68px; height: 68px; display: block; filter: drop-shadow(0 10px 16px rgba(0,0,0,.26)); transition: transform 180ms var(--ease-mass); }
+.appLibrary__grid article:hover .appLibrary__tile { transform: scale(1.06); }
+.appLibrary__grid article.is-busy .appLibrary__tile { animation: library-launch 550ms var(--ease-mass) infinite alternate; }
+.appLibrary__pin { position: absolute; top: 3px; right: 3px; width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: var(--glass-bg-hover); color: var(--ink-faint); box-shadow: 0 3px 12px rgba(0,0,0,.25); opacity: 0; transform: scale(.85); transition: opacity 140ms, transform 140ms; }
+.appLibrary__grid article:hover .appLibrary__pin, .appLibrary__pin:focus-visible, .appLibrary__pin.is-pinned { opacity: 1; transform: scale(1); }
+.appLibrary__pin.is-pinned { color: var(--accent); }
+.appLibrary__empty { grid-column: 1 / -1; padding: 80px 0; text-align: center; color: var(--ink-faint); font: 13px var(--font-ui); }
+.appLibrary__error { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); max-width: min(520px, calc(100vw - 40px)); padding: 10px 15px; border-radius: 12px; color: var(--danger); font: 11.5px var(--font-ui); }
+@keyframes library-in { from { opacity: 0; transform: scale(1.025); } }
+@keyframes library-launch { to { transform: translateY(-7px) scale(1.03); } }
+@media (prefers-reduced-motion: reduce) { .appLibrary { animation: none; } .appLibrary__grid article.is-busy .appLibrary__tile { animation: none; } }

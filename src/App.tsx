@@ -5,12 +5,17 @@ import { Horizon } from "./surfaces/Horizon";
 import { Orbit } from "./surfaces/Orbit";
 import { Pulse } from "./surfaces/Pulse";
 import { OverlayHost } from "./surfaces/OverlayHost";
+import { SnapPreview } from "./surfaces/SnapPreview";
 import { openOverlay } from "./lib/win";
+import { useShell } from "./shell/context";
 
 /** Routes by ?surface=…  Each Tauri window on Windows loads exactly one
  *  surface; with no param (dev on macOS) the full composed Stage renders. */
 
 function Surface() {
+  const { state, actions } = useShell();
+  const toggleAppearance = () =>
+    void actions.setAppearance(state.appearance.resolved === "light" ? "dark" : "light");
   const surface = new URLSearchParams(window.location.search).get("surface");
   switch (surface) {
     case "deepfield":
@@ -21,6 +26,8 @@ function Surface() {
           onOpenSingularity={() => openOverlay("singularity")}
           onOpenCore={() => openOverlay("core")}
           onOpenConstellation={() => openOverlay("constellation")}
+          onToggleTheme={toggleAppearance}
+          onOpenWindowStudio={() => openOverlay("window-studio")}
         />
       );
     case "orbit":
@@ -29,6 +36,8 @@ function Surface() {
       return <Pulse />;
     case "overlay":
       return <OverlayHost />;
+    case "snap":
+      return <SnapPreview />;
     default:
       return <Stage />;
   }

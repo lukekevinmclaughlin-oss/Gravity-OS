@@ -1,0 +1,128 @@
+.deepField {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+
+.deepField__image,
+.deepField__live {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.deepField__image {
+  background-position: center;
+  background-size: cover;
+  transition: opacity var(--t-heavy) var(--ease-mass);
+}
+
+.desktopMenuDismiss {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.desktopMenu {
+  position: fixed;
+  z-index: 80;
+  width: 332px;
+  padding: 8px;
+  border-radius: 14px;
+  color: var(--ink);
+  box-shadow: var(--shadow-hover);
+}
+
+.desktopMenu__heading {
+  padding: 7px 8px 5px;
+  color: var(--ink-dim);
+  font-size: var(--text-cap);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.desktopMenu__appearance {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 2px 4px 8px;
+}
+
+.desktopMenu__appearance button {
+  min-height: 30px;
+  border-radius: 7px;
+  background: var(--glass-bg-lift);
+}
+
+.desktopMenu__appearance button:hover,
+.desktopMenu__appearance button:focus-visible,
+.desktopMenu__appearance button.is-selected {
+  color: var(--on-accent);
+  background: var(--accent);
+  outline: none;
+}
+
+.desktopMenu__wallpapers {
+  display: grid;
+  gap: 5px;
+}
+
+.wallpaperChoice {
+  display: grid;
+  grid-template-columns: 78px 1fr 18px;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 58px;
+  padding: 5px;
+  border-radius: 9px;
+  text-align: left;
+}
+
+.wallpaperChoice:hover,
+.wallpaperChoice:focus-visible {
+  background: var(--glass-bg-lift);
+  outline: none;
+}
+
+.wallpaperChoice__preview {
+  width: 78px;
+  height: 46px;
+  border: 1px solid var(--glass-border);
+  border-radius: 7px;
+  background-position: center;
+  background-size: cover;
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.wallpaperChoice__copy {
+  min-width: 0;
+}
+
+.wallpaperChoice__name,
+.wallpaperChoice__description {
+  display: block;
+}
+
+.wallpaperChoice__name {
+  font-size: var(--text-ui);
+  font-weight: 600;
+}
+
+.wallpaperChoice__description {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--ink-dim);
+  font-size: var(--text-cap);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallpaperChoice__check {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}

@@ -4,7 +4,10 @@
 use parking_lot::Mutex;
 
 use super::ShellPlatform;
-use crate::shell::{AppInfo, OrbitSpace, ShellState, SystemStatus, WindowInfo};
+use crate::shell::{
+    AppearanceState, AppInfo, OrbitSpace, SceneFrame, SceneWindow, ShellState, SystemStatus,
+    WindowInfo, WindowRule, WindowScene, WindowingState,
+};
 
 pub struct MockPlatform {
     state: Mutex<ShellState>,
@@ -58,6 +61,8 @@ impl MockPlatform {
             ],
             active_orbit: "o1".into(),
             notifications: Vec::new(),
+            appearance: AppearanceState::default(),
+            windowing: WindowingState::default(),
         };
         Self { state: Mutex::new(state) }
     }
@@ -88,14 +93,51 @@ impl ShellPlatform for MockPlatform {
     fn close_window(&self, id: &str) {
         self.state.lock().windows.retain(|w| w.id != id);
     }
-    fn launch_app(&self, _app_id: &str) {}
+    fn window_action(&self, _action: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn window_action_for(&self, _window_id: &str, _action: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn configure_windowing(&self, _gap: u32, _cycling: bool) {}
+    fn configure_rules(&self, _rules: &[WindowRule]) {}
+    fn capture_scene(&self, name: &str) -> Result<WindowScene, String> {
+        let state = self.state.lock();
+        Ok(WindowScene {
+            id: format!("scene-{}", state.windows.len()),
+            name: name.to_string(),
+            created_at: 0,
+            windows: state
+                .windows
+                .iter()
+                .map(|window| SceneWindow {
+                    app_id: window.app_id.clone(),
+                    title: window.title.clone(),
+                    frame: SceneFrame {
+                        x: 0.1,
+                        y: 0.1,
+                        width: 0.8,
+                        height: 0.8,
+                        monitor_index: 0,
+                    },
+                })
+                .collect(),
+        })
+    }
+    fn restore_scene(&self, _scene: &WindowScene) -> Result<(), String> {
+        Ok(())
+    }
+    fn launch_app(&self, _app_id: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn set_volume(&self, value: f32) {
         self.state.lock().status.volume = value.clamp(0.0, 1.0);
     }
-    fn set_brightness(&self, value: f32) {
+    fn set_brightness(&self, value: f32) -> Result<(), String> {
         self.state.lock().status.brightness = Some(value.clamp(0.0, 1.0));
+        Ok(())
     }
-    fn toggle_setting(&self, key: &str) {
+    fn toggle_setting(&self, key: &str) -> Result<(), String> {
         let mut s = self.state.lock();
         match key {
             "wifi" => s.status.online = !s.status.online,
@@ -103,6 +145,7 @@ impl ShellPlatform for MockPlatform {
             "focus" => s.status.focus = !s.status.focus,
             _ => {}
         }
+        Ok(())
     }
     fn empty_trash(&self) {
         self.state.lock().status.trash_full = false;
@@ -110,6 +153,15 @@ impl ShellPlatform for MockPlatform {
     fn switch_orbit(&self, id: &str) {
         self.state.lock().active_orbit = id.to_string();
     }
+    fn move_window_to_orbit(&self, window_id: &str, orbit_id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let window = state
+            .windows
+            .iter_mut()
+            .find(|window| window.id == window_id)
+            .ok_or_else(|| "That window is no longer available".to_string())?;
+        window.orbit_id = orbit_id.to_string();
+        Ok(())
     fn dismiss_notification(&self, id: &str) {
         self.state.lock().notifications.retain(|n| n.id != id);
     }

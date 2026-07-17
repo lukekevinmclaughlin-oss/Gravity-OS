@@ -1,6 +1,6 @@
 [package]
 name = "gravity-os"
-version = "0.2.0"
+version = "1.0.0"
 description = "Gravity OS — a shell replacement for Windows 11"
 authors = ["Luke McLaughlin"]
 edition = "2021"
@@ -8,7 +8,10 @@ rust-version = "1.77"
 
 [lib]
 name = "gravity_os_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Gravity OS is a Windows desktop shell. Keeping only the Rust library avoids
+# exporting the entire WinRT surface through a GNU cdylib (which can overflow
+# PE export ordinals); mobile static/cdylib artifacts are intentionally out of scope.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -27,7 +30,9 @@ tauri-plugin-global-shortcut = "2"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Accessibility",
   "Win32_UI_Shell",
+  "Win32_UI_Shell_PropertiesSystem",
   "Win32_UI_Controls",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",
@@ -38,6 +43,14 @@ windows = { version = "0.58", features = [
   "Win32_Media_Audio_Endpoints",
   "Win32_Storage_FileSystem",
   "Win32_Graphics_Gdi",
+  "Win32_Devices_Display",
+  "Devices_Radios",
+  "Foundation",
+  "Foundation_Collections",
+  "Win32_NetworkManagement_WiFi",
+  "UI_Notifications",
+  "UI_Notifications_Management",
+  "ApplicationModel",
 ] }
 
 [features]

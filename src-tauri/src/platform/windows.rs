@@ -7,23 +7,32 @@
 #![allow(clippy::missing_safety_doc)]
 
 use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, TRUE, WPARAM};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Shell::{
     SHEmptyRecycleBinW, SHQueryRecycleBinW, SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI,
     SHERB_NOSOUND, SHQUERYRBINFO,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowLongW, GetWindowTextLengthW, GetWindowTextW,
-    IsIconic, IsWindowVisible, PostMessageW, SetForegroundWindow, ShowWindow, GWL_EXSTYLE,
-    SW_MINIMIZE, SW_RESTORE, WM_CLOSE, WS_EX_TOOLWINDOW,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowTextLengthW,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, PostMessageW,
+    SetForegroundWindow, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_MINIMIZE, SW_RESTORE,
+    SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WM_CLOSE, WS_EX_TOOLWINDOW,
 };
 
-use super::{audio, shell_control, appindex, ShellPlatform};
-use crate::shell::{OrbitSpace, PulseNote, ShellState, SystemStatus, WindowInfo};
+use super::{
+    appindex, audio, brightness, network, notifications, radio, shell_control,
+    windowing::WindowManager, ShellPlatform,
+};
+use crate::shell::{
+    AppearanceState, OrbitSpace, PulseNote, SceneWindow, ShellState, SystemStatus, WindowInfo,
+    WindowRule, WindowScene, WindowingState,
+};
 
 fn hwnd_to_id(hwnd: HWND) -> String {
     (hwnd.0 as isize).to_string()
@@ -32,23 +41,35 @@ fn id_to_hwnd(id: &str) -> Option<HWND> {
     id.parse::<isize>().ok().map(|v| HWND(v as *mut c_void))
 }
 
-/// Shell-side state that has no OS source of truth: virtual-desktop mapping,
-/// notifications, and cosmetic radio toggles.
+/// Shell-side state layered over live Windows sources: Orbit assignments,
+/// focus state, placement rules, and cached system readings.
 struct Internal {
     orbits: Vec<OrbitSpace>,
     active_orbit: String,
     notifications: Vec<PulseNote>,
     focus: bool,
     wifi_on: bool,
+    network_name: Option<String>,
     bluetooth_on: bool,
+    brightness: Option<f32>,
+    window_orbits: HashMap<isize, String>,
+    rules: Vec<WindowRule>,
+    ruled_windows: HashSet<isize>,
+    last_notification_poll: std::time::Instant,
 }
 
 pub struct WindowsPlatform {
     inner: Mutex<Internal>,
+    window_manager: WindowManager,
 }
 
 impl WindowsPlatform {
     pub fn new() -> Self {
+        let network_name = network::connected_network();
+        let wifi_on = radio::wifi_state().unwrap_or(network_name.is_some());
+        let bluetooth_on = radio::bluetooth_state().unwrap_or(false);
+        let display_brightness = brightness::get().ok();
+        let pulse_notes = notifications::read().unwrap_or_default();
         Self {
             inner: Mutex::new(Internal {
                 orbits: vec![
@@ -57,24 +78,54 @@ impl WindowsPlatform {
                     OrbitSpace { id: "o3".into(), name: "Orbit 3".into() },
                 ],
                 active_orbit: "o1".into(),
-                notifications: Vec::new(),
+                notifications: pulse_notes,
                 focus: false,
-                wifi_on: true,
-                bluetooth_on: true,
+                wifi_on,
+                network_name,
+                bluetooth_on,
+                brightness: display_brightness,
+                window_orbits: HashMap::new(),
+                rules: Vec::new(),
+                ruled_windows: HashSet::new(),
+                last_notification_poll: std::time::Instant::now(),
             }),
+            window_manager: WindowManager::default(),
         }
     }
 }
 
-unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let out = &mut *(lparam.0 as *mut Vec<WindowInfo>);
+struct WindowScan<'a> {
+    out: &'a mut Vec<WindowInfo>,
+    mapping: &'a mut HashMap<isize, String>,
+    active_orbit: &'a str,
+    seen: &'a mut Vec<isize>,
+}
 
-    if !IsWindowVisible(hwnd).as_bool() {
+unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let scan = &mut *(lparam.0 as *mut WindowScan<'_>);
+    let key = hwnd.0 as isize;
+    let visible = IsWindowVisible(hwnd).as_bool();
+    if !visible && !scan.mapping.contains_key(&key) {
+        return TRUE;
+    }
+    let mut process_id = 0;
+    GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+    if process_id == GetCurrentProcessId() {
         return TRUE;
     }
     // Skip tool windows (tray helpers, tooltips).
     let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
     if ex & WS_EX_TOOLWINDOW.0 != 0 {
+        return TRUE;
+    }
+    let mut class = vec![0u16; 128];
+    let class_len = GetClassNameW(hwnd, &mut class);
+    if class_len > 0
+        && String::from_utf16_lossy(&class[..class_len as usize]) == "Windows.UI.Core.CoreWindow"
+    {
+        // UWP apps expose this implementation window alongside their real
+        // ApplicationFrameWindow. Treating both as user windows causes Dock
+        // clicks to focus the hidden CoreWindow instead of restoring the app.
         return TRUE;
     }
     let len = GetWindowTextLengthW(hwnd);
@@ -92,27 +143,36 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     }
 
     let foreground = GetForegroundWindow();
-    out.push(WindowInfo {
+    let orbit_id = scan
+        .mapping
+        .entry(key)
+        .or_insert_with(|| scan.active_orbit.to_string())
+        .clone();
+    scan.seen.push(key);
+    scan.out.push(WindowInfo {
         id: hwnd_to_id(hwnd),
         app_id: appindex::app_id_for_window(hwnd, &title),
         title,
         minimized: IsIconic(hwnd).as_bool(),
-        focused: hwnd == foreground,
-        orbit_id: "o1".into(),
+        focused: visible && hwnd == foreground,
+        orbit_id,
     });
     TRUE
 }
 
-fn live_windows(active_orbit: &str) -> Vec<WindowInfo> {
+fn live_windows(inner: &mut Internal) -> Vec<WindowInfo> {
     let mut out: Vec<WindowInfo> = Vec::new();
+    let mut seen = Vec::new();
+    let mut scan = WindowScan {
+        out: &mut out,
+        mapping: &mut inner.window_orbits,
+        active_orbit: &inner.active_orbit,
+        seen: &mut seen,
+    };
     unsafe {
-        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut out as *mut _ as isize));
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut scan as *mut _ as isize));
     }
-    // All real windows live on the active orbit until virtual-desktop
-    // integration lands (roadmap).
-    for w in &mut out {
-        w.orbit_id = active_orbit.to_string();
-    }
+    inner.window_orbits.retain(|handle, _| seen.contains(handle));
     out
 }
 
@@ -145,33 +205,93 @@ fn recycle_bin_full() -> bool {
     }
 }
 
+fn match_scene_windows(scene: &WindowScene, windows: &[WindowInfo]) -> Vec<(usize, usize)> {
+    let mut used = Vec::new();
+    let mut matches = Vec::new();
+    for (saved_index, saved) in scene.windows.iter().enumerate() {
+        let live = windows
+            .iter()
+            .enumerate()
+            .filter(|(index, window)| {
+                !used.contains(index) && window.app_id == saved.app_id
+            })
+            .min_by_key(|(_, window)| if window.title == saved.title { 0 } else { 1 });
+        if let Some((live_index, _)) = live {
+            used.push(live_index);
+            matches.push((saved_index, live_index));
+        }
+    }
+    matches
+}
+
 impl ShellPlatform for WindowsPlatform {
     fn snapshot(&self) -> ShellState {
-        let inner = self.inner.lock();
+        let mut inner = self.inner.lock();
+        if inner.last_notification_poll.elapsed() >= std::time::Duration::from_secs(5) {
+            if let Ok(notes) = notifications::read() {
+                inner.notifications = notes;
+            }
+            inner.last_notification_poll = std::time::Instant::now();
+        }
         let mut status = SystemStatus {
             online: inner.wifi_on,
-            network: if inner.wifi_on { Some("Network".into()) } else { None },
+            network: if inner.wifi_on { inner.network_name.clone() } else { None },
             volume: audio::get_volume().unwrap_or(0.5),
-            brightness: None, // desktop displays: roadmap (WMI/DDC-CI)
+            brightness: inner.brightness,
             focus: inner.focus,
             bluetooth: inner.bluetooth_on,
             trash_full: recycle_bin_full(),
             ..Default::default()
         };
         power_status(&mut status);
+        let windows = live_windows(&mut inner);
+        let active_orbit = inner.active_orbit.clone();
+        let mut rule_actions = Vec::new();
+        for window in &windows {
+            if window.orbit_id != active_orbit {
+                continue;
+            }
+            let Ok(handle) = window.id.parse::<isize>() else { continue };
+            let action = inner
+                .rules
+                .iter()
+                .find(|rule| rule.enabled && rule.app_id == window.app_id)
+                .map(|rule| rule.action.clone());
+            if inner.ruled_windows.insert(handle) {
+                if let Some(action) = action {
+                    rule_actions.push((handle, action));
+                }
+            }
+        }
+        for (handle, action) in rule_actions {
+            let _ = self
+                .window_manager
+                .execute_for(HWND(handle as *mut c_void), &action);
+        }
 
         ShellState {
             apps: appindex::pinned_and_indexed(),
-            windows: live_windows(&inner.active_orbit),
+            windows,
             status,
             orbits: inner.orbits.clone(),
             active_orbit: inner.active_orbit.clone(),
             notifications: inner.notifications.clone(),
+            appearance: AppearanceState::default(),
+            windowing: WindowingState::default(),
         }
     }
 
     fn focus_window(&self, id: &str) {
         if let Some(hwnd) = id_to_hwnd(id) {
+            let orbit = self
+                .inner
+                .lock()
+                .window_orbits
+                .get(&(hwnd.0 as isize))
+                .cloned();
+            if let Some(orbit) = orbit {
+                self.switch_orbit(&orbit);
+            }
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
                 let _ = SetForegroundWindow(hwnd);
@@ -195,26 +315,137 @@ impl ShellPlatform for WindowsPlatform {
         }
     }
 
-    fn launch_app(&self, app_id: &str) {
-        appindex::launch(app_id);
+    fn window_action(&self, action: &str) -> Result<(), String> {
+        self.window_manager.execute(action)
+    }
+
+    fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        self.window_manager.execute_for(hwnd, action)
+    }
+
+    fn configure_windowing(&self, gap: u32, cycling: bool) {
+        self.window_manager.configure(gap, cycling);
+    }
+
+    fn configure_rules(&self, rules: &[WindowRule]) {
+        let mut inner = self.inner.lock();
+        inner.rules = rules.to_vec();
+        inner.ruled_windows.clear();
+    }
+
+    fn capture_scene(&self, name: &str) -> Result<WindowScene, String> {
+        let mut inner = self.inner.lock();
+        let windows = live_windows(&mut inner);
+        let active_orbit = inner.active_orbit.clone();
+        drop(inner);
+        let captured: Vec<SceneWindow> = windows
+            .into_iter()
+            .filter(|window| window.orbit_id == active_orbit && !window.minimized)
+            .filter_map(|window| {
+                let hwnd = id_to_hwnd(&window.id)?;
+                let frame = self.window_manager.capture_frame(hwnd).ok()?;
+                Some(SceneWindow {
+                    app_id: window.app_id,
+                    title: window.title,
+                    frame,
+                })
+            })
+            .collect();
+        if captured.is_empty() {
+            return Err("There are no visible application windows to capture".into());
+        }
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_secs();
+        Ok(WindowScene {
+            id: format!("scene-{created_at}-{}", captured.len()),
+            name: name.to_string(),
+            created_at,
+            windows: captured,
+        })
+    }
+
+    fn restore_scene(&self, scene: &WindowScene) -> Result<(), String> {
+        let mut windows = {
+            let mut inner = self.inner.lock();
+            live_windows(&mut inner)
+        };
+        let mut required: HashMap<&str, usize> = HashMap::new();
+        for saved in &scene.windows {
+            *required.entry(&saved.app_id).or_default() += 1;
+        }
+        for (app_id, count) in required {
+            let available = windows
+                .iter()
+                .filter(|window| window.app_id == app_id)
+                .count();
+            for _ in available..count {
+                let _ = appindex::launch(app_id);
+            }
+        }
+
+        for _ in 0..10 {
+            windows = {
+                let mut inner = self.inner.lock();
+                live_windows(&mut inner)
+            };
+            let matched = match_scene_windows(scene, &windows);
+            if matched.len() == scene.windows.len() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+
+        let matched = match_scene_windows(scene, &windows);
+        for (saved_index, live_index) in &matched {
+            let hwnd = id_to_hwnd(&windows[*live_index].id)
+                .ok_or_else(|| "A Scene window disappeared during restore".to_string())?;
+            self.window_manager
+                .restore_frame(hwnd, &scene.windows[*saved_index].frame)?;
+        }
+        if matched.len() != scene.windows.len() {
+            return Err(format!(
+                "Restored {} of {} windows; some applications did not create another window",
+                matched.len(),
+                scene.windows.len()
+            ));
+        }
+        Ok(())
+    }
+
+    fn launch_app(&self, app_id: &str) -> Result<(), String> {
+        appindex::launch(app_id)
     }
 
     fn set_volume(&self, value: f32) {
         audio::set_volume(value.clamp(0.0, 1.0));
     }
 
-    fn set_brightness(&self, _value: f32) {
-        // Roadmap: WMI (laptop panels) / DDC-CI (external monitors).
+    fn set_brightness(&self, value: f32) -> Result<(), String> {
+        let value = value.clamp(0.0, 1.0);
+        brightness::set(value)?;
+        self.inner.lock().brightness = Some(value);
+        Ok(())
     }
 
-    fn toggle_setting(&self, key: &str) {
+    fn toggle_setting(&self, key: &str) -> Result<(), String> {
         let mut inner = self.inner.lock();
         match key {
-            "wifi" => inner.wifi_on = !inner.wifi_on,
-            "bluetooth" => inner.bluetooth_on = !inner.bluetooth_on,
+            "wifi" => {
+                inner.wifi_on = radio::toggle_wifi()?;
+                inner.network_name = if inner.wifi_on {
+                    network::connected_network()
+                } else {
+                    None
+                };
+            }
+            "bluetooth" => inner.bluetooth_on = radio::toggle_bluetooth()?,
             "focus" => inner.focus = !inner.focus,
-            _ => {}
+            _ => return Err(format!("Unknown setting: {key}")),
         }
+        Ok(())
     }
 
     fn empty_trash(&self) {
@@ -228,16 +459,66 @@ impl ShellPlatform for WindowsPlatform {
     }
 
     fn switch_orbit(&self, id: &str) {
-        self.inner.lock().active_orbit = id.to_string();
+        let mut inner = self.inner.lock();
+        if !inner.orbits.iter().any(|orbit| orbit.id == id) || inner.active_orbit == id {
+            return;
+        }
+        let windows = live_windows(&mut inner);
+        let mut focus_target = None;
+        for window in windows {
+            let Some(hwnd) = id_to_hwnd(&window.id) else { continue };
+            unsafe {
+                if window.orbit_id == id {
+                    let command = if window.minimized {
+                        SW_SHOWMINNOACTIVE
+                    } else {
+                        SW_SHOWNOACTIVATE
+                    };
+                    let _ = ShowWindow(hwnd, command);
+                    if focus_target.is_none() && !window.minimized {
+                        focus_target = Some(hwnd);
+                    }
+                } else if window.orbit_id == inner.active_orbit {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
+            }
+        }
+        inner.active_orbit = id.to_string();
+        drop(inner);
+        if let Some(hwnd) = focus_target {
+            unsafe {
+                let _ = SetForegroundWindow(hwnd);
+            }
+        }
+    }
+
+    fn move_window_to_orbit(&self, window_id: &str, orbit_id: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        let mut inner = self.inner.lock();
+        if !inner.orbits.iter().any(|orbit| orbit.id == orbit_id) {
+            return Err("That Orbit does not exist".into());
+        }
+        let _ = live_windows(&mut inner);
+        let key = hwnd.0 as isize;
+        if !inner.window_orbits.contains_key(&key) {
+            return Err("That window is no longer available".into());
+        }
+        inner.window_orbits.insert(key, orbit_id.to_string());
+        let active = inner.active_orbit == orbit_id;
+        drop(inner);
+        unsafe {
+            let _ = ShowWindow(hwnd, if active { SW_SHOWNOACTIVATE } else { SW_HIDE });
+        }
+        Ok(())
     }
 
     fn dismiss_notification(&self, id: &str) {
+        let _ = notifications::dismiss(id);
         self.inner.lock().notifications.retain(|n| n.id != id);
     }
 
     fn engage_shell(&self) {
         shell_control::hide_taskbar();
-        shell_control::reserve_work_area();
     }
 
     fn disengage_shell(&self) {

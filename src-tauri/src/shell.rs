@@ -4,6 +4,41 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppearanceMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolvedAppearance {
+    Light,
+    #[default]
+    Dark,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceState {
+    pub mode: AppearanceMode,
+    pub resolved: ResolvedAppearance,
+    pub wallpaper_id: String,
+}
+
+impl Default for AppearanceState {
+    fn default() -> Self {
+        Self {
+            mode: AppearanceMode::System,
+            resolved: ResolvedAppearance::Dark,
+            wallpaper_id: "deep-field".into(),
+        }
+    }
+}
+
 fn hue_of(name: &str) -> u32 {
     let mut h: u32 = 0;
     for b in name.bytes() {
@@ -93,6 +128,63 @@ pub struct PulseNote {
     pub body: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneFrame {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub monitor_index: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneWindow {
+    pub app_id: String,
+    pub title: String,
+    pub frame: SceneFrame,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowScene {
+    pub id: String,
+    pub name: String,
+    pub created_at: u64,
+    pub windows: Vec<SceneWindow>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowRule {
+    pub id: String,
+    pub app_id: String,
+    pub app_name: String,
+    pub action: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowingState {
+    pub gap: u32,
+    pub cycling: bool,
+    pub scenes: Vec<WindowScene>,
+    pub rules: Vec<WindowRule>,
+}
+
+impl Default for WindowingState {
+    fn default() -> Self {
+        Self {
+            gap: 10,
+            cycling: true,
+            scenes: Vec::new(),
+            rules: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellState {
@@ -102,4 +194,6 @@ pub struct ShellState {
     pub orbits: Vec<OrbitSpace>,
     pub active_orbit: String,
     pub notifications: Vec<PulseNote>,
+    pub appearance: AppearanceState,
+    pub windowing: WindowingState,
 }

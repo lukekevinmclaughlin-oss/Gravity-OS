@@ -15,6 +15,7 @@
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
   --text-ui: 13px;
   --text-cap: 11px;
+  --text-small: 11px;
   --track-ui: -0.08px;
 
   /* Neutral chrome (color lives in the wallpaper, not the panels) */
@@ -48,6 +49,7 @@
   --glass-blur: 36px;
   --shadow-float: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
   --shadow-hover: 0 16px 56px rgba(0, 0, 0, 0.42), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+  --shadow-menu: var(--shadow-float);
 
   /* Radii — panel 16, menu 10, menu item 6, tiles superellipse-ish */
   --radius-panel: 16px;

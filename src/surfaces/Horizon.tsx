@@ -6,10 +6,12 @@ import {
   GravityMark,
   MoonIcon,
   SearchIcon,
+  SunIcon,
   VolumeIcon,
   WifiIcon,
 } from "../components/Icons";
 import { growHorizonWindow } from "../lib/win";
+import type { WindowAction } from "../shell/types";
 import "./horizon.css";
 
 /** Horizon — a single full-width menu bar (spec §3).
@@ -21,6 +23,7 @@ export interface HorizonProps {
   onOpenConstellation?: () => void;
   onOpenSingularity?: () => void;
   onToggleTheme?: () => void;
+  onOpenWindowStudio?: () => void;
 }
 
 interface MenuItem {
@@ -45,10 +48,11 @@ function useClock(): string {
   return `${date} ${time}`;
 }
 
-export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, onToggleTheme }: HorizonProps) {
+export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, onToggleTheme, onOpenWindowStudio }: HorizonProps) {
   const { state, actions } = useShell();
   const [open, setOpen] = useState<string | null>(null);
   const [confirmPower, setConfirmPower] = useState<"restart" | "shutdown" | null>(null);
+  const [windowError, setWindowError] = useState<string | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
   const clock = useClock();
@@ -75,6 +79,13 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
   const run = (fn?: () => void) => () => {
     setOpen(null);
     fn?.();
+  };
+
+  const manage = (action: WindowAction) => () => {
+    void actions.windowAction(action).catch((error) => {
+      setWindowError(String(error));
+      window.setTimeout(() => setWindowError(null), 3500);
+    });
   };
 
   const gravityMenu: MenuEntry[] = [
@@ -133,7 +144,28 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
     {
       title: "Window",
       entries: [
+        { label: "Window Studio…", action: onOpenWindowStudio },
+        "sep",
         { label: "Minimize", action: focusedWin ? () => actions.minimizeWindow(focusedWin.id) : undefined, disabled: !focusedWin },
+        { label: "Undo Gravity Move", hint: "Ctrl Alt Z", action: focusedWin ? manage("undo") : undefined, disabled: !focusedWin },
+        { label: "Restore Original Size", action: focusedWin ? manage("restore") : undefined, disabled: !focusedWin },
+        "sep",
+        { label: "Move to Left Half", hint: "Ctrl Alt ←", action: focusedWin ? manage("left-half") : undefined, disabled: !focusedWin },
+        { label: "Move to Right Half", hint: "Ctrl Alt →", action: focusedWin ? manage("right-half") : undefined, disabled: !focusedWin },
+        { label: "Move to Top Half", hint: "Ctrl Alt ↑", action: focusedWin ? manage("top-half") : undefined, disabled: !focusedWin },
+        { label: "Move to Bottom Half", hint: "Ctrl Alt ↓", action: focusedWin ? manage("bottom-half") : undefined, disabled: !focusedWin },
+        { label: "Maximize", hint: "Ctrl Alt Enter", action: focusedWin ? manage("maximize") : undefined, disabled: !focusedWin },
+        { label: "Center", action: focusedWin ? manage("center") : undefined, disabled: !focusedWin },
+        "sep",
+        { label: "Previous Display", hint: "Ctrl Alt Shift ←", action: focusedWin ? manage("previous-display") : undefined, disabled: !focusedWin },
+        { label: "Next Display", hint: "Ctrl Alt Shift →", action: focusedWin ? manage("next-display") : undefined, disabled: !focusedWin },
+        "sep",
+        { label: "Pair with Previous Window", action: focusedWin ? manage("pair-previous") : undefined, disabled: !focusedWin },
+        { label: "Tile This Application", action: focusedWin ? manage("tile-app") : undefined, disabled: !focusedWin },
+        { label: "Arrange This Display", action: focusedWin ? manage("arrange-display") : undefined, disabled: !focusedWin },
+        { label: "Cascade This Display", action: focusedWin ? manage("cascade") : undefined, disabled: !focusedWin },
+        { label: "Gather All Windows Here", action: focusedWin ? manage("gather-all") : undefined, disabled: !focusedWin },
+        "sep",
         { label: "Constellation", hint: "F3", action: onOpenConstellation },
         { label: "Toggle Daybreak", action: onToggleTheme },
         ...(state.windows.length ? ["sep" as const] : []),
@@ -230,16 +262,24 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
         <span className="horizon__spacer" />
 
         <button
+          title={`Switch to ${state.appearance.resolved === "light" ? "dark" : "light"} appearance`}
+          className="horizon__status horizon__appearance"
+          onClick={onToggleTheme}
+        >
+          <SunIcon size={14.5} />
+        </button>
+
+        <button
           title="Focus"
           className={`horizon__status ${state.status.focus ? "is-on" : ""}`}
-          onClick={() => actions.toggleSetting("focus")}
+          onClick={() => void actions.toggleSetting("focus").catch((error) => setWindowError(String(error)))}
         >
           <MoonIcon size={14.5} />
         </button>
         <button
           title={state.status.network ?? "Offline"}
           className={`horizon__status ${state.status.online ? "" : "is-off"}`}
-          onClick={() => actions.toggleSetting("wifi")}
+          onClick={() => void actions.toggleSetting("wifi").catch((error) => setWindowError(String(error)))}
         >
           <WifiIcon size={15} />
         </button>
@@ -287,6 +327,7 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
           </div>
         </div>
       )}
+      {windowError && <div className="hzToast glass-heavy" role="alert">{windowError}</div>}
     </div>
   );
 }

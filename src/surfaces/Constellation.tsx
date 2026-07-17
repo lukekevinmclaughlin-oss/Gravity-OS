@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
@@ -13,6 +14,8 @@ export interface ConstellationProps {
 
 export function Constellation({ open, onClose }: ConstellationProps) {
   const { state, actions } = useShell();
+  const [draggedWindow, setDraggedWindow] = useState<string | null>(null);
+  const [dropOrbit, setDropOrbit] = useState<string | null>(null);
   if (!open) return null;
 
   const wins = state.windows.filter((w) => w.orbitId === state.activeOrbit);
@@ -29,8 +32,22 @@ export function Constellation({ open, onClose }: ConstellationProps) {
         {state.orbits.map((o) => (
           <button
             key={o.id}
-            className={`constel__orbitPill glass ${o.id === state.activeOrbit ? "is-active" : ""}`}
+            className={`constel__orbitPill glass ${o.id === state.activeOrbit ? "is-active" : ""} ${dropOrbit === o.id ? "is-drop" : ""}`}
             onClick={() => actions.switchOrbit(o.id)}
+            onDragOver={(event) => {
+              if (!draggedWindow) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDropOrbit(o.id);
+            }}
+            onDragLeave={() => setDropOrbit((current) => current === o.id ? null : current)}
+            onDrop={(event) => {
+              event.preventDefault();
+              const windowId = draggedWindow ?? event.dataTransfer.getData("application/x-gravity-window");
+              setDropOrbit(null);
+              setDraggedWindow(null);
+              if (windowId) void actions.moveWindowToOrbit(windowId, o.id);
+            }}
           >
             {o.name}
             <span className="constel__orbitCount">
@@ -62,6 +79,16 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                       onClick={() => {
                         actions.focusWindow(w.id);
                         onClose();
+                      }}
+                      draggable
+                      onDragStart={(event) => {
+                        setDraggedWindow(w.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("application/x-gravity-window", w.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedWindow(null);
+                        setDropOrbit(null);
                       }}
                     >
                       <span className="constel__cardHead">

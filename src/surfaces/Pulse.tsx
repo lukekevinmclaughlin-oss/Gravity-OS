@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
+import { fitPulseWindow } from "../lib/win";
+import { isTauri } from "../shell/tauri";
 import "./pulse.css";
 
 /** Pulse — notifications drift in on a decaying orbit and settle. */
@@ -12,12 +14,14 @@ export function Pulse() {
   const { state, actions } = useShell();
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
 
-  const dismiss = (id: string) => {
+  const dismiss = (id: string, remove = true) => {
     // Play the exit animation, then actually remove the note.
     setLeaving((prev) => new Set(prev).add(id));
     setTimeout(() => {
-      actions.dismissNotification(id);
+      if (remove) actions.dismissNotification(id);
+      else setHidden((prev) => new Set(prev).add(id));
       setLeaving((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -35,7 +39,7 @@ export function Pulse() {
           timers.current.set(
             note.id,
             setTimeout(() => {
-              dismiss(note.id);
+              dismiss(note.id, false);
               timers.current.delete(note.id);
             }, LINGER_MS)
           );
@@ -50,6 +54,10 @@ export function Pulse() {
         timers.current.delete(id);
       }
     }
+    setHidden((previous) => {
+      const next = new Set([...previous].filter((id) => alive.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.notifications, state.status.focus]);
 
@@ -62,11 +70,30 @@ export function Pulse() {
     };
   }, []);
 
-  if (state.status.focus) return null;
+  const visible = state.status.focus
+    ? []
+    : state.notifications.filter((notification) => !hidden.has(notification.id));
+
+  useEffect(() => {
+    void fitPulseWindow(visible.length);
+  }, [visible.length]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<boolean>("gravity://shell-active", (event) => {
+        void fitPulseWindow(event.payload ? visible.length : 0);
+      }).then((dispose) => { unlisten = dispose; })
+    );
+    return () => unlisten?.();
+  }, [visible.length]);
+
+  if (visible.length === 0) return null;
 
   return (
     <div className="pulse">
-      {state.notifications.map((n) => (
+      {visible.map((n) => (
         <div
           key={n.id}
           className={`pulse__toast glass-heavy lens ${leaving.has(n.id) ? "is-leaving" : ""}`}

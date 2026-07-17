@@ -1,166 +1,145 @@
 # Gravity OS
 
-A complete desktop-shell replacement for **Windows 11** that delivers a
-macOS-Tahoe-class experience with its own identity: **mass and orbit** instead
-of glass and light. Every surface obeys one law — *everything has mass* — from
-the way dock icons lean into the cursor's gravity well to the way overlays pull
-the desktop toward them.
+Gravity OS is a complete Windows 11 desktop environment built with Tauri 2,
+Rust, React, and WebView2. It keeps Windows compatibility underneath while
+replacing the everyday shell experience with Gravity's original mass-and-orbit
+design language.
 
-Gravity OS hides the Windows taskbar and paints its own shell on top: a floating
-menu bar, a physics-driven dock, a command palette, an exposé, and a control
-centre. It installs and uninstalls cleanly, and always hands the desktop back to
-Explorer when removed.
+Version 1.0 is a native, multi-monitor shell rather than a static concept UI.
+Dock applications launch, focus, restore, pin, reorder, and expose window
+actions. Window layouts, workspaces, scenes, rules, notifications, radios,
+brightness, volume, appearance, wallpapers, and system actions are backed by
+Windows APIs and persisted across sessions.
 
-> Status: **v0.2 (macOS-parity P1)**. The design language moved from
-> "deliberately divergent" to **macOS grammar, Gravity ornament** — see
-> [docs/MACOS-PARITY-SPEC.md](docs/MACOS-PARITY-SPEC.md) for the full spec and
-> phase plan. The Rust core now compiles and runs natively on Windows 11.
+No Apple artwork, fonts, symbols, wallpaper, or branding is included.
 
----
+## Experience
 
-## The Gravity design language
+| Surface | Function |
+|---|---|
+| **Deep Field** | Per-monitor animated desktop attached to Explorer's WorkerW, with four original paired light/dark wallpapers. |
+| **Horizon** | Native top AppBar with application, edit, window-management, appearance, system, and session controls. |
+| **Orbit** | Native application dock with installed-app discovery, real icons, Gaussian magnification, running state, launch feedback, focus/restore, drag reordering, pinning, and context actions. |
+| **Singularity** | Ranked application/action search and a parser-based calculator. |
+| **Constellation** | Live window overview and three managed Orbit workspaces with drag-to-workspace movement. |
+| **Window Studio** | Layout gallery, reusable scenes, per-application rules, gap preferences, and shortcut reference. |
+| **Applications** | Searchable installed-application library with launch and pin controls. |
+| **Core** | Live volume, DDC/CI brightness, Wi-Fi, Bluetooth, focus, power, battery, and shell controls. |
+| **Pulse** | Windows Action Center feed with focus filtering and dismiss actions. |
 
-Apple's Liquid Glass is about light through glass. Gravity's metaphor is
-**gravitation**, executed with the same restraint.
+Appearance can follow Windows or be forced to light/dark. It can be changed
+from Horizon, Orbit, or the desktop context menu; the selected paired wallpaper
+and every window update together.
 
-| Idea | How it shows up |
-|------|-----------------|
-| **Graviton glass** | Deep smoked-glass panels with a subtle lensing edge (light bends around mass), cool curved highlights instead of frost. |
-| **Mass-based motion** | One spring model (`src/lib/physics.ts`). Light things (menus, toasts) snap; heavy things (windows, overlays) settle. |
-| **Deep-space palette** | Near-black blues, never gray, with a single **aurora** accent (green→teal→indigo) for focus and toggles. |
-| **Type** | Space Grotesk for display, Inter for UI — geometric, clearly not San Francisco. |
-| **Two skins** | **Deep Field** (dark) and **Daybreak** (light), same physics. |
+## Window management
 
-## The surfaces
+Gravity ports and extends the geometry engine from the sibling `Gravity`
+project. Supported actions include halves, quarters, thirds, two-thirds,
+sixths, maximize, almost-maximize, center, grow/shrink, multi-monitor transfer,
+directional focus, cascade, application tiling, gather, paired layouts, undo,
+and configurable repeated-key cycling.
 
-Each has a Gravity name and an intentional twist away from its macOS ancestor.
+Default global shortcuts:
 
-| Gravity surface | macOS analogue | The difference |
-|-----------------|----------------|----------------|
-| **Horizon** | Menu bar | Full-width 30px bar; mouse-down menus with slide-track; the Gravity menu performs real session actions (sleep/restart/lock). |
-| **Orbit** | Dock | True 2.0× magnification with Gaussian falloff, 1:1 cursor-tracked; real app icons on hue-tinted squircle plates (monogram fallback). |
-| **Singularity** | Spotlight | Command palette: app search, actions, and a no-`eval` calculator (`+ - * / % ^`, parens). |
-| **Constellation** | Mission Control | Windows cluster by app along constellation lines; **Orbits** are the virtual desktops. |
-| **Core** | Control Center | Orbital toggles, inertial sliders, battery + brand. |
-| **Pulse** | Notifications | Toasts drift in on a decaying orbit and settle. |
-| **Deep Field** | Wallpaper | Live generative starfield, aurora ribbons, and lensing rings. |
+| Shortcut | Action |
+|---|---|
+| `Alt+Space` | Singularity |
+| `F3` | Constellation |
+| `Ctrl+Alt+Arrow` | Half-screen layout |
+| `Ctrl+Alt+Enter` | Maximize |
+| `Ctrl+Alt+Z` | Undo last layout |
+| `Ctrl+Alt+Shift+Left/Right` | Move to adjacent display |
 
-All are visible together in the dev **Stage** (`src/surfaces/Stage.tsx`).
-
----
+Snap previews also appear when a normal Windows application is dragged into a
+screen edge or corner zone.
 
 ## Architecture
 
-**Tauri 2 (Rust core) + React/TypeScript (WebView2 UI).** Chosen because a shell
-runs all day and must idle lean, and because Graviton glass is far easier to get
-pixel-right in CSS than in WinUI.
+```text
+src/
+  shell/                 Shared state/actions, queued Tauri IPC, browser mock
+  surfaces/              All shell surfaces and Window Studio/Applications
+  lib/                   Dock, wallpaper, search, icon, and motion utilities
 
-```
-src/                     React shell UI (runs in the browser on macOS via a mock)
-  shell/                 Backend-agnostic state layer
-    types.ts             ShellState/actions shared with Rust
-    mock.ts              Simulated Windows machine for macOS dev
-    tauri.ts             Live IPC provider (polls the Rust core on Windows)
-    context.tsx          Picks mock vs Tauri automatically
-  surfaces/              Horizon, Orbit, Singularity, Core, Constellation, Pulse, DeepField, Stage
-  lib/                   physics.ts (springs, gravity well), search.ts (rank + calculator)
-  components/            AppTile (per-app monogram identity), Icons
-
-src-tauri/               Rust core
-  src/shell.rs           ShellState mirror (serde camelCase)
-  src/commands.rs        Tauri IPC commands
-  src/platform/
-    mod.rs               ShellPlatform trait + compile-time backend selection
-    mock.rs              Off-Windows backend (keeps macOS `cargo check` green)
-    windows.rs           Win32: window enum/control, power, recycle bin
-    audio.rs             Core Audio endpoint volume (COM)
-    appindex.rs          Start-Menu .lnk scan, launch, window→app attribution
-    shell_control.rs     Taskbar hide/restore, work-area reserve, shell swap
-  installer/hooks.nsi    NSIS install/uninstall hooks (autostart + shell restore)
+src-tauri/src/
+  commands.rs            Validated IPC boundary
+  settings.rs            Atomic per-user persistence and migrations
+  geometry.rs            Platform-neutral layout engine and tests
+  platform/appindex.rs   Start Menu + AppsFolder catalog, icons, launch, AUMID matching
+  platform/windowing.rs  Win32 window actions, history, scenes, rules, workspaces
+  platform/shell_control.rs  AppBars, taskbar handoff, WorkerW, shell recovery
+  platform/snap.rs       Global move/resize hook and snap preview surfaces
+  platform/audio.rs      Core Audio volume
+  platform/brightness.rs DDC/CI monitor brightness
+  platform/radio.rs      Windows Runtime Wi-Fi/Bluetooth controls
+  platform/network.rs    Native Wi-Fi connection state
+  platform/notifications.rs Windows notification listener
 ```
 
-The platform is chosen at compile time: `#[cfg(windows)]` selects the real
-Win32 backend, everything else selects the mock. That's why the whole project
-type-checks and `cargo check`s on this Mac while the real shell logic is
-Windows-only.
+Each display receives its own Deep Field, Horizon, Orbit, snap, and overlay
+surface using physical coordinates, so mixed-DPI and negative-coordinate
+monitor arrangements remain aligned. Native AppBars reserve the usable work
+area. Orbit keeps a compact centered hitbox so transparent margins do not steal
+input from normal applications.
 
-### How the shell takes over the desktop
+Gravity starts in reversible overlay mode: Explorer remains available for file
+and desktop plumbing, while its taskbar is handed off to Gravity. Switching to
+Windows 11 or quitting unregisters every AppBar, restores the user's original
+taskbar mode, and shows Explorer's taskbar again. Optional per-user Winlogon
+shell replacement is available but is never enabled by the installer.
 
-Two levels, both reversible:
+## Develop and test
 
-1. **Overlay mode (default, safe).** Gravity hides the taskbar
-   (`Shell_TrayWnd`), reserves the work area so maximized apps don't sit under
-   Horizon/Orbit, and floats its surfaces as separate transparent always-on-top
-   windows. Explorer keeps running for file plumbing. Nothing permanent changes.
+Requirements: Node.js 20+, Rust stable, Windows 11, WebView2, and the Microsoft
+C++ build tools required by Tauri.
 
-2. **Full shell replacement (opt-in).** Gravity sets itself as the per-user
-   Winlogon shell (`HKCU\…\Winlogon\Shell`), so it launches instead of the
-   Windows desktop at sign-in. Toggled from within Gravity
-   (`set_full_replacement` command); **never forced by the installer**.
-
-The uninstaller removes autostart and deletes the shell override, so the machine
-always boots back into Explorer. If Gravity is ever set as the shell and won't
-start, sign-in to another account or boot Safe Mode and delete that registry
-value to recover.
-
----
-
-## Develop on macOS (or any OS)
-
-The entire UI runs against the mock backend in a normal browser.
-
-```bash
+```powershell
 npm install
-npm run dev        # http://localhost:1420 — full composed desktop
-npm test           # vitest: physics + search/calculator
-npx tsc --noEmit   # type-check
+npm run dev
+npm test
+npx tsc --noEmit
+cd src-tauri
+cargo check --lib
 ```
 
-Try it: **⌘/Ctrl-K** opens Singularity, **F3** opens Constellation, the clock
-opens Core, and the dock reacts to your cursor.
+`npm run dev` exposes a composed browser Stage at `http://localhost:1420`.
+Running `npm run tauri dev` exercises the real multi-window Windows shell.
 
----
+The platform-neutral geometry suite can also be run directly:
 
-## Building the Windows installer
+```powershell
+rustc --edition 2021 --test src-tauri/src/geometry.rs -o $env:TEMP\gravity-geometry-tests.exe
+& $env:TEMP\gravity-geometry-tests.exe
+```
 
-Requires a **Windows 11** machine (or VM) with the
-[Tauri prerequisites](https://tauri.app/start/prerequisites/): Rust, the
-WebView2 runtime, and the MSVC C++ build tools.
+## Build and install
 
 ```powershell
 npm install
 npm run tauri build
 ```
 
-Output: `src-tauri\target\release\bundle\nsis\Gravity OS_0.1.0_x64-setup.exe`.
+The current-user NSIS installer is emitted under
+`src-tauri\target\release\bundle\nsis`. Installation registers Gravity for
+login in safe overlay mode. Uninstall removes autostart and any optional
+per-user shell override.
 
-- **Install** runs the app and registers login autostart (overlay mode).
-- **Uninstall** (Windows *Apps & features*, or the bundled uninstaller) removes
-  autostart and restores the Explorer shell.
+Windows Smart App Control expects public release installers and executables to
+be signed by a certificate rooted in a trusted CA. Local development builds can
+be tested on the build machine, but public artifacts should be Authenticode
+signed as part of the release pipeline.
 
-Enable full shell replacement only after you've confirmed Gravity launches
-reliably on your hardware.
+## Recovery
 
-### Cross-compiling from macOS
+- Use **Switch to Windows 11** in Horizon, Orbit, or the tray to suspend Gravity.
+- Use **Quit Gravity OS** to restore Explorer and exit.
+- If optional full shell replacement was enabled and Gravity cannot start,
+  remove `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell`
+  from another account or Safe Mode.
+- The NSIS uninstaller performs that registry cleanup automatically.
 
-You can produce a Windows binary from this Mac with
-`rustup target add x86_64-pc-windows-msvc` and `cargo xwin`, but the NSIS bundle
-and any runtime behaviour still need to be assembled and tested on Windows.
-Treat macOS as the UI/logic environment and Windows as the integration target.
+## License and assets
 
----
-
-## Roadmap
-
-- Reparent Deep Field to `WorkerW` so real desktop icons sit above the wallpaper.
-- Per-window traffic-light overlay on third-party windows (caption hooks).
-- Virtual-desktop ↔ Orbit binding via `IVirtualDesktopManager`.
-- Real Wi-Fi/Bluetooth radio state; brightness via WMI/DDC-CI.
-- Notification source via `UserNotificationListener`.
-- Daybreak-specific light wallpaper.
-- Cursor-passthrough on transparent strip regions.
-
-## Licence & assets
-
-Original work. Fonts are OFL (Inter, Space Grotesk). No Apple fonts, symbols,
-wallpapers, or marks are used or shipped — Gravity's identity is its own.
+Original work by Luke McLaughlin. Inter and Space Grotesk are distributed under
+the SIL Open Font License. Gravity's generated wallpapers are original project
+assets and contain no third-party marks.

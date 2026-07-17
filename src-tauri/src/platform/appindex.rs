@@ -6,14 +6,19 @@ use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, FALSE, HWND, MAX_PATH};
+use windows::core::{BSTR, PCWSTR};
+use windows::Win32::Foundation::{BOOL, CloseHandle, FALSE, HANDLE, HWND, LPARAM, MAX_PATH, TRUE};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, SW_SHOWNORMAL};
+use windows::Win32::UI::Shell::PropertiesSystem::{
+    IPropertyStore, PROPERTYKEY, SHGetPropertyStoreForWindow,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumChildWindows, GetWindowThreadProcessId, SW_SHOWNORMAL,
+};
 
 use crate::shell::AppInfo;
 
@@ -34,13 +39,21 @@ const BUILTINS: &[(&str, &str, Option<&str>)] = &[
         "ms-photos:",
         Some(r"shell:AppsFolder\Microsoft.Windows.Photos_8wekyb3d8bbwe!App"),
     ),
-    ("Terminal", "wt.exe", None),
+    (
+        "Terminal",
+        "wt.exe",
+        Some(r"shell:AppsFolder\Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"),
+    ),
     (
         "Settings",
         "ms-settings:",
         Some(r"shell:AppsFolder\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"),
     ),
-    ("Calculator", "calc.exe", None),
+    (
+        "Calculator",
+        "calc.exe",
+        Some(r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"),
+    ),
     (
         "Store",
         "ms-windows-store:",
@@ -113,6 +126,7 @@ fn build_index() -> Vec<AppInfo> {
     for root in start_menu_roots() {
         scan_lnks(&root, &mut apps, 0);
     }
+    scan_packaged_apps(&mut apps);
     apps
 }
 
@@ -132,20 +146,24 @@ pub fn pinned_and_indexed() -> Vec<AppInfo> {
     index().clone()
 }
 
-pub fn launch(app_id: &str) {
-    let Some(app) = index().iter().find(|a| a.id == app_id) else {
-        return;
-    };
-    let Some(cmd) = &app.exe else { return };
-    shell_open(cmd);
+pub fn launch(app_id: &str) -> Result<(), String> {
+    let app = index()
+        .iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| format!("Application '{app_id}' is no longer installed."))?;
+    let cmd = app
+        .exe
+        .as_deref()
+        .ok_or_else(|| format!("{} has no launch target.", app.name))?;
+    shell_open(cmd).map_err(|error| format!("Could not open {}: {error}", app.name))
 }
 
 /// ShellExecute "open" on a path, exe name or URI.
-pub fn shell_open(target: &str) {
+pub fn shell_open(target: &str) -> Result<(), String> {
     let file = wide(target);
     let op = wide("open");
     unsafe {
-        ShellExecuteW(
+        let result = ShellExecuteW(
             HWND(std::ptr::null_mut()),
             PCWSTR(op.as_ptr()),
             PCWSTR(file.as_ptr()),
@@ -153,6 +171,100 @@ pub fn shell_open(target: &str) {
             PCWSTR::null(),
             SW_SHOWNORMAL,
         );
+        let code = result.0 as isize;
+        if code > 32 {
+            Ok(())
+        } else {
+            Err(shell_execute_error(code))
+        }
+    }
+}
+
+/// Add packaged/UWP applications exposed by the Windows AppsFolder. Modern
+/// Store applications do not necessarily have `.lnk` files in the Start Menu.
+fn scan_packaged_apps(out: &mut Vec<AppInfo>) {
+    let packaged = std::thread::spawn(enumerate_packaged_apps_sta)
+        .join()
+        .unwrap_or_default();
+    for (name, target) in packaged {
+        let low = name.to_lowercase();
+        if low.contains("uninstall") || low.contains("help") {
+            continue;
+        }
+        let base_id = slug(&name);
+        if out.iter().any(|app| app.id == base_id) {
+            continue;
+        }
+        let mut app = AppInfo::new(&name, Some(target), false);
+        if out.iter().any(|existing| existing.id == app.id) {
+            app.id = format!("{}-app", app.id);
+        }
+        out.push(app);
+    }
+}
+
+fn enumerate_packaged_apps_sta() -> Vec<(String, String)> {
+    use windows::Win32::System::Com::{
+        CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        IEnumShellItems, IShellItem, BHID_EnumItems, FOLDERID_AppsFolder, KNOWN_FOLDER_FLAG,
+        SHGetKnownFolderItem, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_NORMALDISPLAY,
+    };
+
+    unsafe {
+        if CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_err() {
+            return Vec::new();
+        }
+        let result = (|| -> windows::core::Result<Vec<(String, String)>> {
+            let folder: IShellItem = SHGetKnownFolderItem(
+                &FOLDERID_AppsFolder,
+                KNOWN_FOLDER_FLAG(0),
+                HANDLE::default(),
+            )?;
+            let enumerator: IEnumShellItems = folder.BindToHandler(None, &BHID_EnumItems)?;
+            let mut result = Vec::new();
+            loop {
+                let mut items = [None];
+                let mut fetched = 0u32;
+                enumerator.Next(&mut items, Some(&mut fetched))?;
+                if fetched == 0 {
+                    break;
+                }
+                let Some(item) = items[0].take() else { continue };
+                let name_ptr = item.GetDisplayName(SIGDN_NORMALDISPLAY)?;
+                let name = name_ptr.to_string().unwrap_or_default();
+                CoTaskMemFree(Some(name_ptr.0.cast()));
+                let target_ptr = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING)?;
+                let target = target_ptr.to_string().unwrap_or_default();
+                CoTaskMemFree(Some(target_ptr.0.cast()));
+                if !name.trim().is_empty() && !target.trim().is_empty() {
+                    result.push((name, target));
+                }
+            }
+            Ok(result)
+        })()
+        .unwrap_or_default();
+        CoUninitialize();
+        result
+    }
+}
+
+fn shell_execute_error(code: isize) -> String {
+    match code {
+        0 => "Windows could not start the application.".into(),
+        2 => "The application file was not found.".into(),
+        3 => "The application path was not found.".into(),
+        5 => "Windows denied access to the application.".into(),
+        8 => "Windows did not have enough memory to start the application.".into(),
+        26 => "The application is currently locked by another process.".into(),
+        27 => "The file association is incomplete or invalid.".into(),
+        28 => "The application did not respond to the launch request.".into(),
+        29 => "Windows could not complete the launch conversation.".into(),
+        30 => "Windows is busy handling another launch request.".into(),
+        31 => "No application is registered for this target.".into(),
+        32 => "A required application component was not found.".into(),
+        other => format!("Windows rejected the launch request (error {other})."),
     }
 }
 
@@ -365,9 +477,68 @@ fn extract_icon(path: &str) -> Option<IconData> {
     }
 }
 
-/// Attribute a top-level window to an app id via its process image name,
-/// falling back to a slug of the window title.
+const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows::core::GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+    pid: 5,
+};
+
+fn property_aumid(hwnd: HWND) -> Option<String> {
+    unsafe {
+        let store: IPropertyStore = SHGetPropertyStoreForWindow(hwnd).ok()?;
+        let value = store.GetValue(&PKEY_APP_USER_MODEL_ID).ok()?;
+        let text = BSTR::try_from(&value).ok()?.to_string();
+        (!text.is_empty()).then_some(text)
+    }
+}
+
+unsafe extern "system" fn collect_child(hwnd: HWND, data: LPARAM) -> BOOL {
+    (*(data.0 as *mut Vec<HWND>)).push(hwnd);
+    TRUE
+}
+
+fn window_aumid(hwnd: HWND) -> Option<String> {
+    if let Some(aumid) = property_aumid(hwnd) {
+        return Some(aumid);
+    }
+    let mut children = Vec::new();
+    unsafe {
+        let _ = EnumChildWindows(
+            hwnd,
+            Some(collect_child),
+            LPARAM(&mut children as *mut _ as isize),
+        );
+    }
+    children.into_iter().find_map(property_aumid)
+}
+
+fn catalog_id_for_aumid(aumid: &str) -> Option<String> {
+    let aumid = aumid.to_lowercase();
+    index().iter().find_map(|app| {
+        let launch_match = app
+            .exe
+            .as_deref()
+            .is_some_and(|target| target.to_lowercase().contains(&aumid));
+        let hint_match = builtin_icon_hint(&app.id)
+            .is_some_and(|target| target.to_lowercase().contains(&aumid));
+        (launch_match || hint_match).then(|| app.id.clone())
+    })
+}
+
+fn catalog_id_for_title(title: &str) -> Option<String> {
+    let title = title.trim();
+    index()
+        .iter()
+        .find(|app| app.name.eq_ignore_ascii_case(title) || app.id == slug(title))
+        .map(|app| app.id.clone())
+}
+
+/// Attribute a top-level window to the same stable catalog id that launches
+/// it. Packaged apps are keyed by AppUserModelID because their visible frame
+/// often belongs to the generic ApplicationFrameHost process.
 pub fn app_id_for_window(hwnd: HWND, title: &str) -> String {
+    if let Some(app_id) = window_aumid(hwnd).and_then(|aumid| catalog_id_for_aumid(&aumid)) {
+        return app_id;
+    }
     if let Some(exe) = process_exe(hwnd) {
         // "msedge.exe" -> "edge" where a builtin matches, else the stem.
         let stem = Path::new(&exe)
@@ -383,11 +554,15 @@ pub fn app_id_for_window(hwnd: HWND, title: &str) -> String {
         }) {
             return app.id.clone();
         }
+        if let Some(app_id) = catalog_id_for_title(title) {
+            return app_id;
+        }
         if !stem.is_empty() {
             return slug(&stem);
         }
     }
-    slug(title.split('—').next_back().unwrap_or(title).trim())
+    let title = title.split('—').next_back().unwrap_or(title).trim();
+    catalog_id_for_title(title).unwrap_or_else(|| slug(title))
 }
 
 fn process_exe(hwnd: HWND) -> Option<String> {
@@ -501,6 +676,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires Google Chrome at the default Start Menu path"]
     fn probe_lnk_icon_pipeline() {
         let lnk = r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk";
         assert!(Path::new(lnk).exists(), "chrome lnk missing on this machine");

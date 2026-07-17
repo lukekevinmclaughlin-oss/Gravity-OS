@@ -26,6 +26,14 @@
   /* Settle back over --t-med when the cursor leaves the shelf… */
   transition: width var(--t-med) var(--ease-mass);
 }
+
+.orbitItem[draggable="true"] {
+  cursor: grab;
+}
+
+.orbitItem[draggable="true"]:active {
+  cursor: grabbing;
+}
 /* …but track 1:1 while the cursor is over it. */
 .orbit.is-live .orbitItem {
   transition: none;
@@ -57,6 +65,26 @@
 }
 .orbitItem__dot.is-running {
   background: var(--ink-dim);
+}
+
+.orbitItem.is-error .orbitItem__tileWrap {
+  animation: orbitLaunchError 360ms ease-out;
+  filter: saturate(0.65);
+}
+
+.orbitItem.is-error .orbitItem__dot {
+  width: 7px;
+  height: 7px;
+  opacity: 1;
+  background: #f4573f;
+  box-shadow: 0 0 10px rgba(244, 87, 63, 0.72);
+}
+
+@keyframes orbitLaunchError {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-2px); }
 }
 
 /* Hover label: glass tooltip pill above the tile, 250ms delay, no motion. */
@@ -123,4 +151,59 @@
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+.orbit__appearanceTile {
+  color: #e0a52e;
+}
+
+.orbitContextDismiss {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.orbitContext {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  z-index: 90;
+  width: 224px;
+  padding: 6px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-menu);
+  color: var(--ink);
+  box-shadow: var(--shadow-menu);
+}
+
+.orbitContext__title {
+  overflow: hidden;
+  padding: 7px 9px 6px;
+  color: var(--ink-dim);
+  font-size: var(--text-small);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbitContext > button[role="menuitem"] {
+  display: block;
+  width: 100%;
+  min-height: 27px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.orbitContext > button[role="menuitem"]:hover,
+.orbitContext > button[role="menuitem"]:focus-visible {
+  color: white;
+  background: var(--accent);
+  outline: none;
+}
+
+.orbitContext__sep {
+  display: block;
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--glass-border);
 }
