@@ -1,0 +1,47 @@
+[package]
+name = "gravity-os"
+version = "0.1.0"
+description = "Gravity OS — a shell replacement for Windows 11"
+authors = ["Luke McLaughlin"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "gravity_os_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+parking_lot = "0.12"
+
+# Windows-only system integration
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+  "Win32_System_Power",
+  "Win32_System_Com",
+  "Win32_System_Threading",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_Storage_FileSystem",
+  "Win32_Graphics_Gdi",
+] }
+
+[features]
+# Tauri custom-protocol for production bundles
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,14 @@
+/* Self-hosted variable fonts (OFL licensed). If the files are absent the UI
+   falls back to the system stack without breaking. */
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk-var.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}

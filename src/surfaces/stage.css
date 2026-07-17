@@ -1,0 +1,15 @@
+.stage__hint {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 11px var(--font-ui);
+  color: var(--ink-faint);
+  opacity: 0.75;
+}
+.stage__hintDot {
+  color: var(--ink-ghost);
+}

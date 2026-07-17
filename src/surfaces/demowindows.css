@@ -1,0 +1,71 @@
+.demoWin {
+  position: absolute;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  opacity: 0.94;
+  animation: demoWinIn var(--t-heavy) var(--ease-mass);
+}
+@keyframes demoWinIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+}
+.demoWin.is-focused {
+  z-index: 20;
+  opacity: 1;
+  box-shadow: var(--shadow-hover), inset 0 1px 0 var(--glass-highlight);
+}
+.demoWin__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  flex: none;
+}
+.demoWin__orbs {
+  display: inline-flex;
+  gap: 7px;
+}
+.demoWin__orb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: var(--glass-bg-lift);
+  transition: all var(--t-light) var(--ease-mass);
+}
+/* Gravity's take on traffic lights: dark orbs that ignite on window hover */
+.demoWin:hover .demoWin__orb.is-close {
+  background: var(--danger);
+  box-shadow: 0 0 7px rgba(255, 93, 115, 0.55);
+}
+.demoWin:hover .demoWin__orb.is-min {
+  background: var(--warn);
+  box-shadow: 0 0 7px rgba(255, 196, 102, 0.5);
+}
+.demoWin:hover .demoWin__orb.is-zoom {
+  background: var(--aurora);
+  box-shadow: 0 0 7px rgba(61, 240, 166, 0.55);
+}
+.demoWin__title {
+  font: 500 12px var(--font-ui);
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.demoWin.is-focused .demoWin__title {
+  color: var(--ink);
+}
+.demoWin__body {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+.demoWin__body .appTile {
+  opacity: 0.4;
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Gravity OS",
+  "version": "0.1.0",
+  "identifier": "com.gravityos.shell",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    },
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Luke McLaughlin",
+    "category": "Utility",
+    "shortDescription": "A shell replacement for Windows 11",
+    "longDescription": "Gravity OS replaces the Windows 11 desktop shell with the Gravity mass-and-orbit interface: Horizon menu bar, Orbit dock, Singularity search, Constellation overview and Core control centre.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "installer/hooks.nsi",
+        "languages": ["English"]
+      }
+    }
+  }
+}

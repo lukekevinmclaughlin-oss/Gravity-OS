@@ -1,0 +1,148 @@
+.constel {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  background: rgba(4, 6, 13, 0.45);
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+  backdrop-filter: blur(22px) saturate(130%);
+  animation: constelIn var(--t-heavy) var(--ease-mass);
+}
+@keyframes constelIn {
+  from {
+    opacity: 0;
+  }
+}
+.constel__orbits {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 64px 0 8px;
+}
+.constel__orbitPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  font: 600 13px var(--font-display);
+  color: var(--ink-dim);
+  transition: color var(--t-light) var(--ease-mass), border-color var(--t-light) var(--ease-mass);
+}
+.constel__orbitPill.is-active {
+  color: var(--ink);
+  border-color: rgba(61, 240, 166, 0.45);
+}
+.constel__orbitCount {
+  font: 600 10.5px var(--font-ui);
+  color: var(--ink-faint);
+  background: var(--glass-bg-lift);
+  border-radius: 99px;
+  padding: 2px 7px;
+}
+.constel__orbitPill.is-active .constel__orbitCount {
+  color: #05130c;
+  background: var(--aurora);
+}
+
+.constel__field {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 44px 56px;
+  padding: 20px 60px 90px;
+  overflow-y: auto;
+}
+.constel__group {
+  position: relative;
+  animation: constelGroup var(--t-heavy) var(--ease-mass);
+}
+@keyframes constelGroup {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+.constel__groupLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  font: 600 12.5px var(--font-display);
+  color: var(--ink-dim);
+  margin-bottom: 14px;
+}
+.constel__cards {
+  position: relative;
+  display: flex;
+  gap: 18px;
+}
+/* the constellation line through the cluster */
+.constel__cards::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  right: -14px;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(140, 170, 255, 0.28), transparent);
+}
+.constel__card {
+  position: relative;
+  width: 208px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  transition: transform var(--t-med) var(--ease-mass), box-shadow var(--t-med) var(--ease-mass);
+}
+.constel__card:hover {
+  transform: scale(1.045) !important;
+  box-shadow: var(--shadow-hover), 0 0 0 1.5px rgba(61, 240, 166, 0.55);
+  z-index: 2;
+}
+.constel__card.is-min {
+  opacity: 0.55;
+}
+.constel__cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.constel__cardTitle {
+  font: 500 11.5px var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.constel__cardClose {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity var(--t-light) var(--ease-mass);
+}
+.constel__card:hover .constel__cardClose {
+  opacity: 1;
+}
+.constel__cardClose:hover {
+  color: var(--danger);
+  background: var(--glass-bg-lift);
+}
+.constel__cardBody {
+  display: grid;
+  place-items: center;
+  height: 118px;
+}
+.constel__empty {
+  font: 500 15px var(--font-display);
+  color: var(--ink-faint);
+}
