@@ -56,19 +56,21 @@ fn slug(name: &str) -> String {
     name.to_lowercase().replace([' ', '_'], "-")
 }
 
+// NOTE: join with real components, not a "/"-separated string — the shell
+// parsing APIs (SHCreateItemFromParsingName etc.) reject forward slashes
+// even though std::fs tolerates them.
 fn start_menu_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    if let Ok(pd) = std::env::var("ProgramData") {
-        roots.push(
-            Path::new(&pd)
-                .join("Microsoft/Windows/Start Menu/Programs"),
-        );
-    }
-    if let Ok(ad) = std::env::var("AppData") {
-        roots.push(
-            Path::new(&ad)
-                .join("Microsoft/Windows/Start Menu/Programs"),
-        );
+    for var in ["ProgramData", "AppData"] {
+        if let Ok(base) = std::env::var(var) {
+            roots.push(
+                Path::new(&base)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs"),
+            );
+        }
     }
     roots
 }
@@ -179,12 +181,19 @@ fn icon_rgba_sta(app_id: &str) -> Option<IconData> {
     let source = if let Some(hint) = builtin_icon_hint(app_id) {
         hint.to_string()
     } else {
-        let app = index().iter().find(|a| a.id == app_id)?;
-        resolve_icon_source(app.exe.as_deref()?)?
+        let app = index().iter().find(|a| a.id == app_id);
+        #[cfg(test)]
+        eprintln!("  [sta] lookup {app_id:?} -> {:?}", app.map(|a| &a.exe));
+        let app = app?;
+        let src = resolve_icon_source(app.exe.as_deref()?);
+        #[cfg(test)]
+        eprintln!("  [sta] source -> {src:?}");
+        src?
     };
-    extract_icon(&source)
-        .or_else(|| extract_icon_imagelist(&source))
-        .map(crop_to_content)
+    let raw = extract_icon(&source).or_else(|| extract_icon_imagelist(&source));
+    #[cfg(test)]
+    eprintln!("  [sta] raw -> {:?}", raw.as_ref().map(|d| (d.width, d.height)));
+    raw.map(crop_to_content)
 }
 
 /// Map a launch command to something the shell can produce an image for:
@@ -197,7 +206,8 @@ fn resolve_icon_source(cmd: &str) -> Option<String> {
     }
     let p = Path::new(cmd);
     if p.is_absolute() {
-        return p.exists().then(|| cmd.to_string());
+        // Shell parsing names require backslashes; std::fs doesn't care.
+        return p.exists().then(|| cmd.replace('/', "\\"));
     }
     // URI scheme (contains ':' but isn't a drive path) → no icon source.
     if cmd.contains(':') {
@@ -485,3 +495,33 @@ fn extract_icon_imagelist(path: &str) -> Option<IconData> {
 // Silence unused import warning on some toolchains.
 #[allow(dead_code)]
 const _C_VOID: usize = std::mem::size_of::<*mut c_void>();
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_lnk_icon_pipeline() {
+        let lnk = r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk";
+        assert!(Path::new(lnk).exists(), "chrome lnk missing on this machine");
+        let src = resolve_icon_source(lnk);
+        eprintln!("resolve_icon_source -> {src:?}");
+        let src = src.expect("source should resolve");
+        let a = extract_icon(&src);
+        eprintln!(
+            "extract_icon -> {:?}",
+            a.as_ref().map(|d| (d.width, d.height, d.rgba.len()))
+        );
+        let b = extract_icon_imagelist(&src);
+        eprintln!(
+            "extract_icon_imagelist -> {:?}",
+            b.as_ref().map(|d| (d.width, d.height, d.rgba.len()))
+        );
+        let full = icon_rgba("google-chrome");
+        eprintln!(
+            "icon_rgba(google-chrome) -> {:?}",
+            full.as_ref().map(|d| (d.width, d.height))
+        );
+        assert!(full.is_some(), "end-to-end icon extraction failed");
+    }
+}
