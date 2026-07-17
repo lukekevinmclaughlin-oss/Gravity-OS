@@ -167,6 +167,25 @@ pub fn open_uri(uri: String) -> Result<(), String> {
     Ok(())
 }
 
+/// The Gravity ⇄ Windows 11 toggle (Horizon menu + dock tile + tray).
+#[tauri::command]
+pub fn set_shell_active(app: tauri::AppHandle, active: bool) {
+    #[cfg(windows)]
+    crate::set_shell_active_impl(&app, active);
+    #[cfg(not(windows))]
+    {
+        let _ = (app, active);
+    }
+}
+
+/// Quit Gravity entirely, restoring the Windows desktop first.
+#[tauri::command]
+pub fn quit_shell(app: tauri::AppHandle) {
+    #[cfg(windows)]
+    crate::set_shell_active_impl(&app, false);
+    app.exit(0);
+}
+
 /// Enable/disable full shell replacement (per-user Winlogon shell).
 /// No-op off Windows.
 #[tauri::command]

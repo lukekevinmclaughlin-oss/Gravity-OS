@@ -87,7 +87,8 @@
   background: linear-gradient(to bottom, transparent, var(--glass-border) 30%, var(--glass-border) 70%, transparent);
 }
 
-.orbit__trashTile {
+.orbit__trashTile,
+.orbit__utilTile {
   position: relative;
   display: grid;
   place-items: center;
@@ -97,7 +98,16 @@
   background: var(--glass-bg-lift);
   border: 1px solid var(--glass-border);
   color: var(--ink-dim);
-  transition: color var(--t-light) var(--ease-mass);
+  transition: color var(--t-light) var(--ease-mass), border-color var(--t-light) var(--ease-mass),
+    background var(--t-light) var(--ease-mass);
+}
+.orbitItem:hover .orbit__utilTile {
+  color: var(--ink);
+}
+.orbit__trashTile.is-armed {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(244, 87, 63, 0.12);
 }
 .orbitItem:hover .orbit__trashTile {
   color: var(--ink);

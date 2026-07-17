@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
-import { TrashIcon } from "../components/Icons";
+import { GridIcon, TrashIcon } from "../components/Icons";
 import { isAppRunning, windowsOf } from "../shell/types";
 import "./orbit.css";
 
@@ -23,6 +23,7 @@ export function Orbit() {
   const tileRefs = useRef(new Map<string, HTMLElement>());
   const [live, setLive] = useState(false);
   const [launching, setLaunching] = useState<ReadonlySet<string>>(new Set());
+  const [trashArmed, setTrashArmed] = useState(false);
 
   // Stop the launch bounce once the app's first window exists.
   useEffect(() => {
@@ -96,17 +97,52 @@ export function Orbit() {
       <span className="orbit__sep" />
 
       <button
+        className="orbitItem orbit__utility"
+        style={{ width: BASE }}
+        aria-label="Switch to Windows 11"
+        ref={(el) => {
+          if (el) tileRefs.current.set("__win11", el);
+          else tileRefs.current.delete("__win11");
+        }}
+        onClick={() => actions.setShellActive(false)}
+      >
+        <span className="orbitItem__label glass-heavy">Switch to Windows 11</span>
+        <span className="orbit__utilTile">
+          <GridIcon size={20} />
+        </span>
+        <span className="orbitItem__dot" />
+      </button>
+
+      <button
         className={`orbitItem orbit__trash ${state.status.trashFull ? "" : "is-empty"}`}
         style={{ width: BASE }}
+        aria-label="Trash"
         ref={(el) => {
           if (el) tileRefs.current.set("__trash", el);
           else tileRefs.current.delete("__trash");
         }}
-        onClick={actions.emptyTrash}
-        title={state.status.trashFull ? "Trash — click to empty" : "Trash is empty"}
+        onClick={() => {
+          if (!state.status.trashFull) return;
+          if (trashArmed) {
+            actions.emptyTrash();
+            setTrashArmed(false);
+          } else {
+            setTrashArmed(true);
+            window.setTimeout(() => setTrashArmed(false), 3000);
+          }
+        }}
+        title={
+          !state.status.trashFull
+            ? "Trash is empty"
+            : trashArmed
+              ? "Click again to empty"
+              : "Trash — click to empty"
+        }
       >
-        <span className="orbitItem__label glass-heavy">Trash</span>
-        <span className="orbit__trashTile">
+        <span className="orbitItem__label glass-heavy">
+          {trashArmed ? "Click again to empty" : "Trash"}
+        </span>
+        <span className={`orbit__trashTile ${trashArmed ? "is-armed" : ""}`}>
           <TrashIcon size={21} />
           {state.status.trashFull && <span className="orbit__trashDot" />}
         </span>

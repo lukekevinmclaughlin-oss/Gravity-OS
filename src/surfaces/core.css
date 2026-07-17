@@ -5,14 +5,14 @@
 }
 .core {
   position: fixed;
-  top: 54px;
+  top: calc(var(--bar-h) + 8px);
   right: 12px;
-  width: 348px;
+  width: 360px;
   z-index: 59;
   border-radius: var(--radius-panel);
   padding: 12px;
   transform-origin: top right;
-  animation: coreDrop var(--t-heavy) var(--ease-mass);
+  animation: coreDrop var(--t-med) var(--ease-mass);
 }
 @keyframes coreDrop {
   from {
@@ -38,7 +38,10 @@
   transition: border-color var(--t-light) var(--ease-mass);
 }
 .core__toggle.is-on {
-  border-color: rgba(61, 240, 166, 0.4);
+  border-color: var(--accent-soft);
+}
+.core__toggle:active {
+  transform: scale(0.97);
 }
 .core__toggleIcon {
   display: grid;
@@ -53,8 +56,8 @@
   transition: all var(--t-med) var(--ease-mass);
 }
 .core__toggle.is-on .core__toggleIcon {
-  background: linear-gradient(118deg, #3df0a6, #2bd9c7);
-  color: #05130c;
+  background: var(--accent);
+  color: var(--on-accent);
   border-color: transparent;
 }
 .core__toggleText {
@@ -86,7 +89,8 @@
   transition: background var(--t-med) var(--ease-mass);
 }
 .core__toggle.is-on .core__switch {
-  background: rgba(61, 240, 166, 0.35);
+  background: var(--accent);
+  border-color: transparent;
 }
 .core__knob {
   position: absolute;
@@ -100,8 +104,8 @@
 }
 .core__toggle.is-on .core__knob {
   transform: translateX(12px);
-  background: var(--aurora);
-  box-shadow: 0 0 8px rgba(61, 240, 166, 0.7);
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .core__slider {
@@ -120,8 +124,8 @@
   outline: none;
   background: linear-gradient(
     to right,
-    #3df0a6 0%,
-    #2bd9c7 var(--fill, 50%),
+    var(--accent) 0%,
+    var(--accent) var(--fill, 50%),
     var(--glass-bg-lift) var(--fill, 50%)
   );
   border: 1px solid var(--glass-border);
@@ -151,7 +155,7 @@
   color: var(--ink-dim);
 }
 .core__brand {
-  font: 500 10.5px var(--font-display);
+  font: 500 10.5px var(--font-brand);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-ghost);

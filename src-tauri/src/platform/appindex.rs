@@ -17,17 +17,35 @@ use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, SW_SHOWN
 
 use crate::shell::AppInfo;
 
-/// Curated dock defaults. `command` is handed to ShellExecute (exe name,
-/// URI scheme, or path). These are always pinned and always present.
-const BUILTINS: &[(&str, &str)] = &[
-    ("Files", "explorer.exe"),
-    ("Edge", "msedge.exe"),
-    ("Mail", "ms-mail:"),
-    ("Photos", "ms-photos:"),
-    ("Terminal", "wt.exe"),
-    ("Settings", "ms-settings:"),
-    ("Calculator", "calc.exe"),
-    ("Store", "ms-windows-store:"),
+/// Curated dock defaults: (name, launch command, icon source override).
+/// `command` is handed to ShellExecute (exe name, URI scheme, or path).
+/// UWP apps launch via URI but their icons come from `shell:AppsFolder\<AUMID>`
+/// parsing names, which IShellItemImageFactory resolves to the packaged tile.
+const BUILTINS: &[(&str, &str, Option<&str>)] = &[
+    ("Files", "explorer.exe", None),
+    ("Edge", "msedge.exe", None),
+    (
+        "Mail",
+        "ms-mail:",
+        Some(r"shell:AppsFolder\Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows"),
+    ),
+    (
+        "Photos",
+        "ms-photos:",
+        Some(r"shell:AppsFolder\Microsoft.Windows.Photos_8wekyb3d8bbwe!App"),
+    ),
+    ("Terminal", "wt.exe", None),
+    (
+        "Settings",
+        "ms-settings:",
+        Some(r"shell:AppsFolder\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"),
+    ),
+    ("Calculator", "calc.exe", None),
+    (
+        "Store",
+        "ms-windows-store:",
+        Some(r"shell:AppsFolder\Microsoft.WindowsStore_8wekyb3d8bbwe!App"),
+    ),
 ];
 
 fn wide(s: &str) -> Vec<u16> {
@@ -88,12 +106,19 @@ fn scan_lnks(dir: &Path, out: &mut Vec<AppInfo>, depth: u32) {
 fn build_index() -> Vec<AppInfo> {
     let mut apps: Vec<AppInfo> = BUILTINS
         .iter()
-        .map(|(name, cmd)| AppInfo::new(name, Some((*cmd).to_string()), true))
+        .map(|(name, cmd, _)| AppInfo::new(name, Some((*cmd).to_string()), true))
         .collect();
     for root in start_menu_roots() {
         scan_lnks(&root, &mut apps, 0);
     }
     apps
+}
+
+fn builtin_icon_hint(app_id: &str) -> Option<&'static str> {
+    BUILTINS
+        .iter()
+        .find(|(name, _, _)| slug(name) == app_id)
+        .and_then(|(_, _, hint)| *hint)
 }
 
 fn index() -> &'static Vec<AppInfo> {
@@ -139,17 +164,37 @@ pub struct IconData {
     pub rgba: Vec<u8>,
 }
 
+/// Icon extraction touches IShellLink/thumbnail providers that expect a
+/// single-threaded apartment; Tauri's IPC pool is MTA, so run each request
+/// on a short-lived STA thread. Results are cached on the frontend.
 pub fn icon_rgba(app_id: &str) -> Option<IconData> {
-    let app = index().iter().find(|a| a.id == app_id)?;
-    let cmd = app.exe.as_deref()?;
-    let path = resolve_icon_source(cmd)?;
-    extract_icon(&path)
+    let app_id = app_id.to_string();
+    std::thread::spawn(move || icon_rgba_sta(&app_id))
+        .join()
+        .ok()
+        .flatten()
 }
 
-/// Map a launch command to a filesystem path we can ask the shell to
-/// thumbnail: absolute paths pass through, bare exe names resolve via the
-/// App Paths registry then PATH; URI schemes have no file icon.
+fn icon_rgba_sta(app_id: &str) -> Option<IconData> {
+    let source = if let Some(hint) = builtin_icon_hint(app_id) {
+        hint.to_string()
+    } else {
+        let app = index().iter().find(|a| a.id == app_id)?;
+        resolve_icon_source(app.exe.as_deref()?)?
+    };
+    extract_icon(&source)
+        .or_else(|| extract_icon_imagelist(&source))
+        .map(crop_to_content)
+}
+
+/// Map a launch command to something the shell can produce an image for:
+/// `shell:` parsing names pass through, absolute paths pass through, bare
+/// exe names resolve via the App Paths registry then PATH; other URI
+/// schemes have no icon source.
 fn resolve_icon_source(cmd: &str) -> Option<String> {
+    if cmd.starts_with("shell:") {
+        return Some(cmd.to_string());
+    }
     let p = Path::new(cmd);
     if p.is_absolute() {
         return p.exists().then(|| cmd.to_string());
@@ -159,6 +204,44 @@ fn resolve_icon_source(cmd: &str) -> Option<String> {
         return None;
     }
     app_paths_lookup(cmd).or_else(|| search_path(cmd))
+}
+
+/// Trim transparent margins (with a small pad) so 48px icons returned
+/// inside a 256px jumbo canvas don't render as a tiny glyph in a corner.
+fn crop_to_content(data: IconData) -> IconData {
+    let (w, h) = (data.width as usize, data.height as usize);
+    let (mut minx, mut miny, mut maxx, mut maxy) = (w, h, 0usize, 0usize);
+    for y in 0..h {
+        for x in 0..w {
+            if data.rgba[(y * w + x) * 4 + 3] > 8 {
+                minx = minx.min(x);
+                miny = miny.min(y);
+                maxx = maxx.max(x);
+                maxy = maxy.max(y);
+            }
+        }
+    }
+    if minx > maxx || (minx == 0 && miny == 0 && maxx == w - 1 && maxy == h - 1) {
+        return data; // empty or already full-bleed
+    }
+    // Keep the crop square and padded so plating stays centred.
+    let side = (maxx - minx + 1).max(maxy - miny + 1);
+    let pad = (side / 16).max(1);
+    let side = (side + pad * 2).min(w.min(h));
+    let cx = (minx + maxx).div_ceil(2);
+    let cy = (miny + maxy).div_ceil(2);
+    let x0 = cx.saturating_sub(side / 2).min(w - side);
+    let y0 = cy.saturating_sub(side / 2).min(h - side);
+    let mut out = vec![0u8; side * side * 4];
+    for y in 0..side {
+        let src = ((y0 + y) * w + x0) * 4;
+        out[y * side * 4..(y + 1) * side * 4].copy_from_slice(&data.rgba[src..src + side * 4]);
+    }
+    IconData {
+        width: side as u32,
+        height: side as u32,
+        rgba: out,
+    }
 }
 
 fn app_paths_lookup(exe: &str) -> Option<String> {
@@ -319,6 +402,83 @@ fn process_exe(hwnd: HWND) -> Option<String> {
         } else {
             None
         }
+    }
+}
+
+/// Fallback for sources IShellItemImageFactory rejects: classic shell icon
+/// via the system image list (jumbo tier), rendered into a 32bpp DIB.
+fn extract_icon_imagelist(path: &str) -> Option<IconData> {
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    };
+    use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
+    use windows::Win32::UI::Shell::{
+        SHGetFileInfoW, SHGetImageList, SHFILEINFOW, SHGFI_SYSICONINDEX, SHIL_JUMBO,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, DI_NORMAL};
+
+    const SIDE: i32 = 256;
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let wpath = wide(path);
+        let mut sfi = SHFILEINFOW::default();
+        let ok = SHGetFileInfoW(
+            PCWSTR(wpath.as_ptr()),
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            Some(&mut sfi),
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_SYSICONINDEX,
+        );
+        if ok == 0 {
+            return None;
+        }
+        let list: IImageList = SHGetImageList(SHIL_JUMBO as i32).ok()?;
+        let hicon = list.GetIcon(sfi.iIcon, ILD_TRANSPARENT.0).ok()?;
+        if hicon.is_invalid() {
+            return None;
+        }
+
+        let hdc = CreateCompatibleDC(None);
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: SIDE,
+                biHeight: -SIDE, // top-down
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let dib = CreateDIBSection(hdc, &info, DIB_RGB_COLORS, &mut bits, None, 0).ok();
+        let result = dib.and_then(|dib| {
+            let old = SelectObject(hdc, dib);
+            let drew = DrawIconEx(hdc, 0, 0, hicon, SIDE, SIDE, 0, None, DI_NORMAL).is_ok();
+            let out = drew.then(|| {
+                let n = (SIDE * SIDE * 4) as usize;
+                let mut buf = vec![0u8; n];
+                std::ptr::copy_nonoverlapping(bits as *const u8, buf.as_mut_ptr(), n);
+                for px in buf.chunks_exact_mut(4) {
+                    px.swap(0, 2); // BGRA → RGBA
+                }
+                IconData {
+                    width: SIDE as u32,
+                    height: SIDE as u32,
+                    rgba: buf,
+                }
+            });
+            SelectObject(hdc, old);
+            let _ = DeleteObject(dib);
+            out
+        });
+        let _ = DeleteDC(hdc);
+        let _ = DestroyIcon(hicon);
+        result
     }
 }
 

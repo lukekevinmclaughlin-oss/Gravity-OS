@@ -102,6 +102,58 @@ fn open_overlay_surface(app: &tauri::AppHandle, surface: &str) {
     }
 }
 
+/// The Gravity ⇄ Windows 11 toggle: suspend hides every Gravity surface and
+/// hands the desktop back (taskbar + work area); resume re-engages. The tray
+/// icon stays either way, so Windows mode always has a way back.
+#[cfg(windows)]
+pub(crate) fn set_shell_active_impl(app: &tauri::AppHandle, active: bool) {
+    let state = app.state::<AppState>();
+    if active {
+        state.platform.engage_shell();
+    } else {
+        state.platform.disengage_shell();
+    }
+    for label in ["deepfield", "horizon", "orbit"] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = if active { w.show() } else { w.hide() };
+        }
+    }
+    // The overlay is summoned on demand; never leave it up across a switch.
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.hide();
+    }
+}
+
+#[cfg(windows)]
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+
+    let resume = MenuItem::with_id(app, "resume", "Resume Gravity", true, None::<&str>)?;
+    let windows11 = MenuItem::with_id(app, "windows11", "Switch to Windows 11", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Gravity OS", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&resume, &windows11, &quit])?;
+
+    let mut tray = TrayIconBuilder::with_id("gravity")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("Gravity OS");
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+    tray.on_menu_event(|app, event| match event.id.as_ref() {
+        "resume" => set_shell_active_impl(app, true),
+        "windows11" => set_shell_active_impl(app, false),
+        "quit" => {
+            set_shell_active_impl(app, false);
+            app.exit(0);
+        }
+        _ => {}
+    })
+    .build(app)?;
+    Ok(())
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
 
@@ -152,10 +204,15 @@ pub fn run() {
             commands::power_action,
             commands::edit_action,
             commands::open_uri,
+            commands::set_shell_active,
+            commands::quit_shell,
         ])
         .setup(|_app| {
             #[cfg(windows)]
-            setup_shell(_app)?;
+            {
+                setup_shell(_app)?;
+                setup_tray(_app)?;
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -22,6 +22,7 @@ interface Result {
   title: string;
   sub?: string;
   hue?: number;
+  appId?: string;
   icon?: React.ReactNode;
   run: () => void;
 }
@@ -84,6 +85,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: app.name,
         sub: isAppRunning(state, app.id) ? "Running" : "Application",
         hue: app.hue,
+        appId: app.id,
         run: () => {
           actions.launchApp(app.id);
           onClose();
@@ -209,7 +211,9 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
                 onMouseEnter={() => setSel(i)}
                 onClick={r.run}
               >
-                {r.kind === "app" && <AppTile name={r.title} hue={r.hue!} size={30} />}
+                {r.kind === "app" && (
+                  <AppTile name={r.title} hue={r.hue!} size={30} appId={r.appId} />
+                )}
                 {(r.kind === "action" || r.kind === "setting") && (
                   <span className="sing__actIcon">{r.icon}</span>
                 )}

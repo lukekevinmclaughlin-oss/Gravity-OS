@@ -179,5 +179,8 @@ export class MockShell implements ShellProviderI {
     powerAction: (kind) => this.notify("Gravity", "Power", `“${kind}” is simulated on the mock machine.`),
     editAction: () => {},
     openSetting: (uri) => this.notify("Gravity", "Settings", `Would open ${uri} on Windows.`),
+    setShellActive: (active) =>
+      this.notify("Gravity", "Shell", active ? "Gravity resumed." : "Switched to Windows 11 (simulated)."),
+    quitShell: () => this.notify("Gravity", "Shell", "Quit is simulated on the mock machine."),
   };
 }

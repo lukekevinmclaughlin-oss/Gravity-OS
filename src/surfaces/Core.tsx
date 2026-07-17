@@ -125,7 +125,7 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
               {s.batteryPercent}%{s.charging ? " · charging" : ""}
             </span>
           )}
-          <span className="core__brand">Gravity OS 0.1 · Deep Field</span>
+          <span className="core__brand">Gravity OS 0.2 · Deep Field</span>
         </div>
       </div>
     </>

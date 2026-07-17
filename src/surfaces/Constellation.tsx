@@ -47,7 +47,7 @@ export function Constellation({ open, onClose }: ConstellationProps) {
           return (
             <div className="constel__group" key={appId}>
               <div className="constel__groupLabel">
-                <AppTile name={app.name} hue={app.hue} size={18} />
+                <AppTile name={app.name} hue={app.hue} size={18} appId={app.id} />
                 {app.name}
               </div>
               <div className="constel__cards">
@@ -84,7 +84,7 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                             hsl(${(app.hue + 42) % 360} 45% 12% / 0.9))`,
                         }}
                       >
-                        <AppTile name={app.name} hue={app.hue} size={34} />
+                        <AppTile name={app.name} hue={app.hue} size={34} appId={app.id} />
                       </span>
                     </button>
                   );

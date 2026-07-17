@@ -1,6 +1,6 @@
 .pulse {
   position: fixed;
-  top: 56px;
+  top: calc(var(--bar-h) + 10px);
   right: 12px;
   z-index: 55;
   display: flex;
@@ -29,6 +29,15 @@
   100% {
     opacity: 1;
     transform: none;
+  }
+}
+.pulse__toast.is-leaving {
+  animation: pulseOut 240ms var(--ease-mass) forwards;
+}
+@keyframes pulseOut {
+  to {
+    opacity: 0;
+    transform: translateX(40px) scale(0.96);
   }
 }
 .pulse__text {

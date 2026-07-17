@@ -88,6 +88,9 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
     { label: "Shut Down…", action: () => setConfirmPower("shutdown") },
     "sep",
     { label: "Lock Screen", hint: "⊞L", action: () => actions.powerAction("lock") },
+    "sep",
+    { label: "Switch to Windows 11", action: () => actions.setShellActive(false) },
+    { label: "Quit Gravity OS", danger: true, action: () => actions.quitShell() },
   ];
 
   const menus: Array<{ title: string; entries: MenuEntry[] }> = [
@@ -164,10 +167,19 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
 
   // Mouse-down open + slide-track (spec §3): press opens; while any menu is
   // open, entering an adjacent title switches without another press.
+  // On Windows the strip window must grow *before* the first menu renders,
+  // or the dropdown clips to the 34px bar for a frame.
+  const openMenu = (key: string | null) => {
+    if (key && openRef.current === null) {
+      void growHorizonWindow(true).then(() => setOpen(key));
+    } else {
+      setOpen(key);
+    }
+  };
   const titleProps = (key: string) => ({
     onMouseDown: (e: React.MouseEvent) => {
       e.preventDefault();
-      setOpen(openRef.current === key ? null : key);
+      openMenu(openRef.current === key ? null : key);
     },
     onMouseEnter: () => {
       if (openRef.current && openRef.current !== key) setOpen(key);

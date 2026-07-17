@@ -79,6 +79,11 @@ export interface ShellActions {
   editAction(kind: EditKind): void;
   /** Open an ms-settings: deep link (validated in the Rust core). */
   openSetting(uri: string): void;
+  /** Gravity ⇄ Windows 11: false hides all surfaces and restores the
+   *  taskbar (resume via the tray icon); true re-engages. */
+  setShellActive(active: boolean): void;
+  /** Quit Gravity entirely, restoring the Windows desktop first. */
+  quitShell(): void;
 }
 
 export interface ShellProviderI {

@@ -1,7 +1,7 @@
 {
   "name": "gravity-os",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Gravity OS — a macOS-Tahoe-class shell replacement for Windows 11 with its own mass-and-orbit design language.",
   "scripts": {

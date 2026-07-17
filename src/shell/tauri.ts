@@ -87,5 +87,7 @@ export class TauriShell implements ShellProviderI {
     powerAction: (kind) => this.call("power_action", { kind }),
     editAction: (kind) => this.call("edit_action", { kind }),
     openSetting: (uri) => this.call("open_uri", { uri }),
+    setShellActive: (active) => this.call("set_shell_active", { active }),
+    quitShell: () => this.call("quit_shell"),
   };
 }

@@ -121,6 +121,19 @@ export function CloseIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** Generic 2×2 grid — the "switch to the other desktop" glyph.
+ *  Deliberately not the Windows flag mark: square panes, even gaps. */
+export function GridIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="4" y="4" width="7.2" height="7.2" rx="1.4" />
+      <rect x="12.8" y="4" width="7.2" height="7.2" rx="1.4" />
+      <rect x="4" y="12.8" width="7.2" height="7.2" rx="1.4" />
+      <rect x="12.8" y="12.8" width="7.2" height="7.2" rx="1.4" />
+    </svg>
+  );
+}
+
 export function ConstellationIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}>
