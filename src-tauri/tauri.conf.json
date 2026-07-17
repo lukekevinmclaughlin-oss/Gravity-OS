@@ -20,6 +20,9 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": {
+      "target/release/WebView2Loader.dll": "WebView2Loader.dll"
+    },
     "publisher": "Luke McLaughlin",
     "category": "Utility",
     "shortDescription": "A complete desktop environment for Windows 11",
