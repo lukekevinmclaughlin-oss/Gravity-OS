@@ -58,6 +58,13 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
         None => (1920.0, 1080.0),
     };
 
+    // Take over the desktop *before* positioning our windows: the work-area
+    // change broadcasts a relayout that would otherwise shift the strips.
+    {
+        let state = app.state::<AppState>();
+        state.platform.engage_shell();
+    }
+
     // Wallpaper / backdrop — behind app windows (not topmost).
     // Roadmap: reparent to WorkerW so real desktop icons sit above it.
     let deepfield = build_surface(app, "deepfield", "deepfield", false, true, false)?;
@@ -79,10 +86,6 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
     let overlay = build_surface(app, "overlay", "overlay", true, false, true)?;
     overlay.set_size(tauri::LogicalSize::new(w, h))?;
     overlay.set_position(tauri::LogicalPosition::new(0.0, 0.0))?;
-
-    // Take over the desktop.
-    let state = app.state::<AppState>();
-    state.platform.engage_shell();
 
     Ok(())
 }
