@@ -11,11 +11,10 @@
 use std::ffi::c_void;
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::Graphics::Gdi::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, ShowWindow, SystemParametersInfoW, SPI_SETWORKAREA,
-    SW_HIDE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    FindWindowW, GetSystemMetrics, ShowWindow, SystemParametersInfoW, SM_CXSCREEN, SM_CYSCREEN,
+    SPI_SETWORKAREA, SW_HIDE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
 };
 
 const HORIZON_H: i32 = 46;

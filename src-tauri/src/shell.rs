@@ -103,19 +103,3 @@ pub struct ShellState {
     pub active_orbit: String,
     pub notifications: Vec<PulseNote>,
 }
-
-impl ShellState {
-    pub fn empty() -> Self {
-        Self {
-            apps: Vec::new(),
-            windows: Vec::new(),
-            status: SystemStatus::default(),
-            orbits: vec![OrbitSpace {
-                id: "o1".into(),
-                name: "Orbit 1".into(),
-            }],
-            active_orbit: "o1".into(),
-            notifications: Vec::new(),
-        }
-    }
-}

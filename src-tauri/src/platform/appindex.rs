@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
+use windows::Win32::Foundation::{CloseHandle, FALSE, HWND, MAX_PATH};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -156,7 +156,7 @@ fn process_exe(hwnd: HWND) -> Option<String> {
         if pid == 0 {
             return None;
         }
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid).ok()?;
         let mut buf = vec![0u16; MAX_PATH as usize];
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(
