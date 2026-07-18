@@ -1,41 +1,47 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
-import { GridIcon, SunIcon, TrashIcon, WindowsIcon } from "../components/Icons";
+import { GridIcon, SlidersIcon, SunIcon, TrashIcon, WindowsIcon } from "../components/Icons";
 import { isAppRunning, windowsOf } from "../shell/types";
 import { reorderPinnedIds } from "../lib/dock";
 import { fitOrbitWindow, growOrbitWindow, openOverlay } from "../lib/win";
 import { isTauri } from "../shell/tauri";
+import { useDesktopWells, WELL_CAPACITY } from "../lib/wells";
+import { usePersonalization } from "../lib/customization";
 import "./orbit.css";
 
 /** Orbit — Gravity's dock. A Gaussian target field is integrated through a
  *  damped spring on one read/write-batched animation frame, so pointer motion,
  *  neighbour displacement, insertions and shelf exit all share one fluid law. */
 
-const BASE = 48;
-const MAX_SCALE = 2.0;
-const SIGMA = 60;
-
 interface OrbitMenuState {
   appId: string;
   left: number;
 }
 
-function magnify(dx: number): number {
-  return 1 + (MAX_SCALE - 1) * Math.exp(-(dx * dx) / (2 * SIGMA * SIGMA));
+function magnify(dx: number, maxScale: number, sigma: number): number {
+  return 1 + (maxScale - 1) * Math.exp(-(dx * dx) / (2 * sigma * sigma));
 }
 
 export interface OrbitProps {
   onOpenAppLibrary?: () => void;
+  onOpenCustomization?: () => void;
 }
 
-export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
+export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}) {
   const { state, actions } = useShell();
+  const wells = useDesktopWells();
+  const [personalization] = usePersonalization();
+  const BASE = personalization.dock.size;
+  const MAX_SCALE = personalization.dock.magnification;
+  const SIGMA = personalization.dock.magnifyRadius;
   const tileRefs = useRef(new Map<string, HTMLElement>());
   const [live, setLive] = useState(false);
   const [launching, setLaunching] = useState<ReadonlySet<string>>(new Set());
   const [launchErrors, setLaunchErrors] = useState<ReadonlyMap<string, string>>(new Map());
   const [trashArmed, setTrashArmed] = useState(false);
+  const [windowDropTarget, setWindowDropTarget] = useState(false);
+  const [draggedWindowId, setDraggedWindowId] = useState<string | null>(null);
   const [menu, setMenu] = useState<OrbitMenuState | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -44,6 +50,8 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   const [actionError, setActionError] = useState<string | null>(null);
   const pointerDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
   const suppressClick = useRef<string | null>(null);
+  const windowDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressWindowClick = useRef<string | null>(null);
   const pointerX = useRef<number | null>(null);
   const animationFrame = useRef<number | null>(null);
   const previousFrame = useRef<number | null>(null);
@@ -77,11 +85,22 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
 
   const items = [
     ...state.apps.filter((a) => a.pinned),
-    ...state.apps.filter((a) => !a.pinned && isAppRunning(state, a.id)),
+    ...(personalization.dock.showOpenApps ? state.apps.filter((a) => !a.pinned && isAppRunning(state, a.id)) : []),
   ];
   const minimizedWindows = state.windows.filter((window) => window.minimized);
   const pinnedIds = state.apps.filter((app) => app.pinned).map((app) => app.id);
   const layoutSignature = `${items.map((item) => item.id).join("|")}::${minimizedWindows.map((window) => window.id).join("|")}`;
+  const notificationsByApp = useMemo(() => {
+    const normalized = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "");
+    return new Map(state.apps.map((app) => {
+      const key = normalized(app.name);
+      const notes = state.notifications.filter((note) => {
+        const source = normalized(note.appName);
+        return source === key || (source.length > 3 && (source.includes(key) || key.includes(source)));
+      });
+      return [app.id, notes] as const;
+    }));
+  }, [state.apps, state.notifications]);
 
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -119,8 +138,97 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   }, [layoutSignature]);
 
   useEffect(() => {
-    void fitOrbitWindow(items.length + minimizedWindows.length);
-  }, [items.length, minimizedWindows.length]);
+    void fitOrbitWindow(items.length + minimizedWindows.length, BASE, MAX_SCALE);
+  }, [items.length, minimizedWindows.length, BASE, MAX_SCALE]);
+
+  useEffect(() => {
+    const trash = tileRefs.current.get("__trash");
+    const shelf = trash?.closest<HTMLElement>(".orbit");
+    if (!trash || !shelf) return;
+    let disposed = false;
+    let timer: number | null = null;
+    let lastPublished = 0;
+    const publish = () => {
+      timer = null;
+      if (disposed || !trash.isConnected) return;
+      lastPublished = performance.now();
+      const rect = trash.getBoundingClientRect();
+      const dockRect = shelf.getBoundingClientRect();
+      void actions.registerDesktopTrashTarget({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        dockX: dockRect.left,
+        dockY: dockRect.top,
+        dockWidth: dockRect.width,
+        dockHeight: dockRect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      }).catch((error) => setActionError(`Dock targeting could not update: ${String(error)}`));
+    };
+    // Magnification changes both the Trash width and its physical x position.
+    // Publish on the leading edge, then at most once per frame pair while the
+    // spring is moving so a fast cross-window drop still uses current geometry.
+    const schedule = () => {
+      if (disposed) return;
+      const delay = Math.max(0, 32 - (performance.now() - lastPublished));
+      if (delay === 0) publish();
+      else if (timer === null) timer = window.setTimeout(publish, delay);
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    observer?.observe(trash);
+    observer?.observe(shelf);
+    window.addEventListener("resize", schedule);
+    const initialFrame = requestAnimationFrame(schedule);
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(initialFrame);
+      if (timer !== null) window.clearTimeout(timer);
+      observer?.disconnect();
+      window.removeEventListener("resize", schedule);
+      void actions.registerDesktopTrashTarget(null).catch(() => {});
+    };
+  }, [actions, layoutSignature]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    const unlisten: Array<() => void> = [];
+    void import("@tauri-apps/api/event").then(async ({ listen }) => {
+      const stopHover = await listen<{ active: boolean }>("gravity://dock-window-hover", ({ payload }) => {
+        setWindowDropTarget(Boolean(payload.active));
+      });
+      const stopDrag = await listen<{ windowId: string; moved: boolean; error: string | null }>(
+        "gravity://dock-window-drag-ended",
+        ({ payload }) => {
+          setDraggedWindowId((current) => current === payload.windowId ? null : current);
+          if (payload.error) setActionError(`Window could not leave Orbit: ${payload.error}`);
+        },
+      );
+      const stopAppDrag = await listen<{ appId: string; error: string | null }>(
+        "gravity://dock-app-drag-ended",
+        ({ payload }) => {
+          if (payload.error) setActionError(`Application could not enter a Gravity Well: ${payload.error}`);
+        },
+      );
+      const stopStore = await listen<{ error: string | null }>("gravity://well-store-result", ({ payload }) => {
+        if (payload.error) setActionError(`Gravity Well could not store the application: ${payload.error}`);
+      });
+      if (disposed) {
+        stopHover();
+        stopDrag();
+        stopAppDrag();
+        stopStore();
+      } else {
+        unlisten.push(stopHover, stopDrag, stopAppDrag, stopStore);
+      }
+    }).catch((error) => setActionError(`Dock window-drop feedback could not start: ${String(error)}`));
+    return () => {
+      disposed = true;
+      unlisten.forEach((stop) => stop());
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -183,7 +291,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
     for (const { key, element, rect } of entries) {
       const target = pointerX.current === null
         ? BASE
-        : BASE * magnify(rect.left + rect.width / 2 - pointerX.current);
+        : BASE * magnify(rect.left + rect.width / 2 - pointerX.current, MAX_SCALE, SIGMA);
       const value = motion.current.get(key) ?? { width: rect.width || BASE, velocity: 0 };
 
       if (reducedMotion.current) {
@@ -191,12 +299,16 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         value.velocity = 0;
       } else {
         const returning = pointerX.current === null;
-        const stiffness = returning ? 300 : 430;
-        const damping = returning ? 34 : 37;
+        const profile = personalization.dock.motion === "gentle"
+          ? { stiffness: returning ? 220 : 285, damping: returning ? 31 : 33 }
+          : personalization.dock.motion === "expressive"
+            ? { stiffness: returning ? 370 : 540, damping: returning ? 34 : 38 }
+            : { stiffness: returning ? 300 : 430, damping: returning ? 34 : 37 };
+        const { stiffness, damping } = profile;
         const acceleration = stiffness * (target - value.width) - damping * value.velocity;
         value.velocity += acceleration * deltaTime;
         value.width += value.velocity * deltaTime;
-        value.width = Math.max(BASE * 0.98, Math.min(BASE * 2.04, value.width));
+        value.width = Math.max(BASE * 0.98, Math.min(BASE * (MAX_SCALE + .04), value.width));
         if (Math.abs(target - value.width) > 0.08 || Math.abs(value.velocity) > 0.25) {
           unsettled = true;
         } else {
@@ -364,6 +476,58 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
     window.addEventListener("mouseup", finish, { once: true });
   };
 
+  const beginWindowDrag = (event: React.PointerEvent<HTMLButtonElement>, windowId: string) => {
+    if (event.button !== 0) return;
+    if (isTauri()) {
+      setDraggedWindowId(windowId);
+      void actions.beginDockWindowDrag(windowId).catch((error) => {
+        setDraggedWindowId(null);
+        setActionError(`Window drag could not start: ${String(error)}`);
+      });
+      return;
+    }
+    windowDrag.current = {
+      id: windowId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveWindowDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = windowDrag.current;
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 6) {
+      drag.moved = true;
+      setDraggedWindowId(drag.id);
+      applyMagnify(null);
+    }
+  };
+
+  const finishWindowDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = windowDrag.current;
+    if (!drag) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    windowDrag.current = null;
+    setDraggedWindowId(null);
+    if (!drag.moved) return;
+    suppressWindowClick.current = drag.id;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    void (async () => {
+      const pointer = await actions.desktopPointerLocation(clientX, clientY);
+      const width = 0.42;
+      const height = 0.48;
+      const x = Math.max(0, Math.min(1 - width, pointer.x - width / 2));
+      const y = Math.max(0, Math.min(1 - height, pointer.y - height / 2));
+      await actions.focusWindow(drag.id);
+      await actions.applyGridRegionOnMonitor(drag.id, pointer.monitor, x, y, width, height);
+    })().catch((error) => setActionError(`Window could not leave Orbit: ${String(error)}`));
+  };
+
   const menuApp = menu ? state.apps.find((app) => app.id === menu.appId) : undefined;
   const menuWindows = menuApp ? windowsOf(state, menuApp.id) : [];
   const setPinned = async (pinned: boolean) => {
@@ -378,7 +542,8 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
 
   return (
     <nav
-      className={`orbit glass ${live ? "is-live" : ""}`}
+      className={`orbit glass is-material-${personalization.dock.material} is-motion-${personalization.dock.motion} ${personalization.dock.showLabels ? "" : "hide-labels"} ${personalization.dock.showIndicators ? "" : "hide-indicators"} ${personalization.dock.showBadges ? "" : "hide-badges"} ${live ? "is-live" : ""} ${windowDropTarget ? "is-window-drop-target" : ""}`}
+      style={{ "--orbit-gap": `${personalization.dock.spacing}px`, "--orbit-opacity": personalization.dock.opacity } as React.CSSProperties}
       onMouseEnter={(event) => {
         setLive(true);
         applyMagnify(event.clientX);
@@ -392,6 +557,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
       {menu && <button className="orbitContextDismiss" aria-label="Close app menu" onClick={() => setMenu(null)} />}
       {items.map((app) => {
         const running = isAppRunning(state, app.id);
+        const notificationCount = notificationsByApp.get(app.id)?.length ?? 0;
         return (
           <button
             key={app.id}
@@ -406,7 +572,12 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
             onClick={() => void onAppClick(app.id)}
             title={launchErrors.get(app.id)}
             onMouseDown={(event) => beginMouseReorder(event, app.id, app.pinned)}
-            onPointerDown={(event) => beginReorder(event, app.id, app.pinned)}
+            onPointerDown={(event) => {
+              if (isTauri() && event.button === 0) {
+                void actions.beginDockAppDrag(app.id).catch((error) => setActionError(String(error)));
+              }
+              beginReorder(event, app.id, app.pinned);
+            }}
             onPointerMove={moveReorder}
             onPointerUp={finishReorder}
             onPointerCancel={() => {
@@ -419,6 +590,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
             <span className="orbitItem__label glass-heavy">{app.name}</span>
             <span className={`orbitItem__tileWrap ${launching.has(app.id) ? "is-launching" : ""}`}>
               <AppTile name={app.name} hue={app.hue} appId={app.id} fill />
+              {notificationCount > 0 && <span className="orbitItem__badge" aria-label={`${notificationCount} notifications`}>{notificationCount > 99 ? "99+" : notificationCount}</span>}
               {fileDropAppId === app.id && (
                 <span className="orbitItem__dropBadge">Open {fileDropCount || ""}</span>
               )}
@@ -441,7 +613,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         return (
           <button
             key={`window-${window.id}`}
-            className="orbitItem orbitWindow"
+            className={`orbitItem orbitWindow ${draggedWindowId === window.id ? "is-window-dragging" : ""}`}
             style={{ width: BASE }}
             aria-label={`Restore ${window.title}`}
             ref={(element) => {
@@ -449,7 +621,22 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
               if (element) tileRefs.current.set(key, element);
               else tileRefs.current.delete(key);
             }}
-            onClick={() => void actions.focusWindow(window.id).catch((error) => setActionError(String(error)))}
+            onClick={() => {
+              if (suppressWindowClick.current === window.id) {
+                suppressWindowClick.current = null;
+                return;
+              }
+              void actions.focusWindow(window.id).catch((error) => setActionError(String(error)));
+            }}
+            onPointerDown={(event) => beginWindowDrag(event, window.id)}
+            onPointerMove={moveWindowDrag}
+            onPointerUp={finishWindowDrag}
+            onPointerCancel={() => {
+              if (!isTauri()) {
+                windowDrag.current = null;
+                setDraggedWindowId(null);
+              }
+            }}
             onContextMenu={(event) => openAppMenu(event, window.appId)}
           >
             <span className="orbitItem__label glass-heavy">{window.title}</span>
@@ -482,6 +669,21 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         <span className="orbit__utilTile orbit__windowsTile">
           <WindowsIcon size={21} />
         </span>
+        <span className="orbitItem__dot" />
+      </button>
+
+      <button
+        className="orbitItem orbit__utility orbit__customization"
+        style={{ width: BASE }}
+        aria-label="Gravity customization"
+        ref={(el) => {
+          if (el) tileRefs.current.set("__customization", el);
+          else tileRefs.current.delete("__customization");
+        }}
+        onClick={() => onOpenCustomization ? onOpenCustomization() : void openOverlay("customization")}
+      >
+        <span className="orbitItem__label glass-heavy">Customize Gravity OS</span>
+        <span className="orbit__utilTile orbit__customizationTile"><SlidersIcon size={20} /></span>
         <span className="orbitItem__dot" />
       </button>
 
@@ -599,6 +801,21 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
               Show All Windows
             </button>
           )}
+          {wells.length > 0 && <div className="orbitContext__heading">Add to Gravity Well</div>}
+          {wells.map((well) => {
+            const occupied = state.windows.filter((window) => window.parkedWellId === well.id).length;
+            const full = occupied >= WELL_CAPACITY[well.kind];
+            return <button key={well.id} role="menuitem" disabled={full} onClick={() => {
+              setMenu(null);
+              void actions.storeAppInWell(menuApp.id, well.id)
+                .catch((error) => setActionError(String(error)));
+            }}><span>{well.name}</span><small>{full ? "Full" : `${occupied}/${WELL_CAPACITY[well.kind]}`}</small></button>;
+          })}
+          {(notificationsByApp.get(menuApp.id)?.length ?? 0) > 0 && <button role="menuitem" onClick={() => {
+            const notes = notificationsByApp.get(menuApp.id) ?? [];
+            void Promise.all(notes.map((note) => actions.dismissNotification(note.id)))
+              .then(() => setMenu(null)).catch((error) => setActionError(String(error)));
+          }}>Clear {notificationsByApp.get(menuApp.id)?.length} notification{notificationsByApp.get(menuApp.id)?.length === 1 ? "" : "s"}</button>}
           <span className="orbitContext__sep" />
           <button role="menuitem" onClick={() => void setPinned(!menuApp.pinned)}>
             {menuApp.pinned ? "Remove from Orbit" : "Keep in Orbit"}

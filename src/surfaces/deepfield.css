@@ -17,7 +17,17 @@
 .deepField__image {
   background-position: center;
   background-size: cover;
-  transition: opacity var(--t-heavy) var(--ease-mass);
+  scale: 1.025;
+  transition: opacity var(--t-heavy) var(--ease-mass), filter var(--t-light) ease;
+}
+
+.deepField__wallpaperTone {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(0,0,0,var(--wallpaper-dim,0)), rgba(0,0,0,var(--wallpaper-dim,0))),
+    linear-gradient(color-mix(in srgb, var(--wallpaper-tint, #17233a) calc(var(--wallpaper-tint-strength,0) * 100%), transparent), color-mix(in srgb, var(--wallpaper-tint, #17233a) calc(var(--wallpaper-tint-strength,0) * 100%), transparent));
 }
 
 .desktopMenuDismiss {
@@ -36,6 +46,8 @@
   border-radius: 14px;
   color: var(--ink);
   box-shadow: var(--shadow-hover);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, white 30%);
+  background: color-mix(in srgb, var(--deepfield) 94%, var(--glass-bg-heavy));
 }
 
 .desktopMenu__heading {
@@ -81,6 +93,8 @@
   background: var(--accent);
   outline: none;
 }
+.desktopMenu__presets button.is-selected { color: var(--on-accent); background: var(--accent); }
+.desktopMenu__windows:disabled { opacity: .42; pointer-events: none; }
 
 .desktopMenu__appearance button:hover,
 .desktopMenu__appearance button:focus-visible,

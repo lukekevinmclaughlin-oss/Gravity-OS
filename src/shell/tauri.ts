@@ -95,18 +95,34 @@ export class TauriShell implements ShellProviderI {
     minimizeWindow: (id) => this.mutate<void>("minimize_window", { id }),
     toggleMaximizeWindow: (id) => this.mutate<void>("toggle_maximize_window", { id }),
     closeWindow: (id) => this.mutate<void>("close_window", { id }),
+    activeWindowControl: (kind) => this.mutate<void>("active_window_control", { kind }),
     windowAction: (action) => this.call<void>("window_action", { action }),
     windowActionFor: (windowId, action) =>
       this.call<void>("window_action_for", { windowId, action }),
     applyGridRegion: (windowId, x, y, width, height) =>
       this.call<void>("apply_grid_region", { windowId, x, y, width, height }),
+    applyGridRegionOnMonitor: (windowId, monitor, x, y, width, height) =>
+      this.call<void>("apply_grid_region_on_monitor", {
+        windowId,
+        monitor,
+        region: { x, y, width, height },
+      }),
     warpWindow: (windowId, operation) =>
       this.call<void>("warp_window", { windowId, operation }),
     parkWindow: (windowId, wellId) =>
       this.mutate<void>("park_window", { windowId, wellId }),
     releaseWindow: (windowId) => this.mutate<void>("release_window", { windowId }),
     releaseAllParkedWindows: () => this.mutate<void>("release_all_parked_windows"),
+    beginDockWindowDrag: (windowId) => this.call<void>("begin_dock_window_drag", { windowId }),
+    storeAppInWell: (appId, wellId) => this.call<void>("store_app_in_well", { appId, wellId }),
+    beginDockAppDrag: (appId) => this.call<void>("begin_dock_app_drag", { appId }),
     registerDesktopWells: (targets) => this.call<void>("register_desktop_wells", { targets }),
+    setWellSurfaceExpanded: (expanded) => this.call<void>("set_well_surface_expanded", { expanded }),
+    registerDesktopTrashTarget: (target) =>
+      this.call<void>("register_desktop_trash_target", { target }),
+    isDesktopTrashTarget: () => this.call<boolean>("is_desktop_trash_target"),
+    desktopPointerLocation: () =>
+      this.call<import("./types").DesktopPointerLocation>("desktop_pointer_location"),
     launchApp: (appId) => {
       const { command, args } = ipc.launchApp(appId);
       return this.call<LaunchResult>(command, args);

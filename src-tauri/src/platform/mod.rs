@@ -1,6 +1,6 @@
 //! Platform abstraction. The shell UI talks only to `ShellPlatform`;
 //! the concrete backend is chosen at compile time so the whole project
-//! type-checks on macOS (mock) and drives the real shell on Windows.
+//! type-checks with a mock and drives the real shell on Windows.
 
 use crate::shell::{ShellState, WindowRule, WindowScene};
 
@@ -13,11 +13,21 @@ pub trait ShellPlatform: Send + Sync {
     fn minimize_window(&self, id: &str) -> Result<(), String>;
     fn toggle_maximize_window(&self, id: &str) -> Result<(), String>;
     fn close_window(&self, id: &str) -> Result<(), String>;
+    fn active_window_control(&self, kind: &str) -> Result<(), String>;
     fn window_action(&self, action: &str) -> Result<(), String>;
     fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String>;
     fn apply_grid_region(
         &self,
         window_id: &str,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String>;
+    fn apply_grid_region_on_monitor(
+        &self,
+        window_id: &str,
+        monitor: usize,
         x: f64,
         y: f64,
         width: f64,

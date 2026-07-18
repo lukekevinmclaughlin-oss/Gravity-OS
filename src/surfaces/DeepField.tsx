@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import { mulberry32 } from "../lib/rng";
 import { WALLPAPERS, wallpaperSource } from "../lib/wallpapers";
 import { useShell } from "../shell/context";
 import type { AppearanceMode } from "../shell/types";
 import { WindowsIcon } from "../components/Icons";
-import { GravityWells } from "./GravityWells";
+import {
+  distributeWindowsToWells,
+  loadCustomWallpaper,
+  saveCustomWallpaper,
+  snapWindowsToGrid,
+  usePersonalization,
+} from "../lib/customization";
+import type { GridLayoutId } from "../lib/customization";
+import { sendWellCommand, useDesktopWells } from "../lib/wells";
+import { openOverlay } from "../lib/win";
 import "./deepfield.css";
 
 /** Deep Field — Gravity's live generative wallpaper.
@@ -189,11 +198,35 @@ interface DesktopMenuState {
 
 export function DeepField() {
   const { state, actions } = useShell();
+  const wells = useDesktopWells();
+  const [personalization, setPersonalization] = usePersonalization();
   const [menu, setMenu] = useState<DesktopMenuState | null>(null);
   const [menuError, setMenuError] = useState<string | null>(null);
+  const [customSource, setCustomSource] = useState<string | null>(null);
+  const wallpaperInput = useRef<HTMLInputElement>(null);
   const selected =
     WALLPAPERS.find((wallpaper) => wallpaper.id === state.appearance.wallpaperId) ?? WALLPAPERS[0];
   const source = wallpaperSource(selected, state.appearance.resolved);
+
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl: string | null = null;
+    if (!personalization.wallpaper.useCustom) {
+      setCustomSource(null);
+      return;
+    }
+    void (async () => {
+      const preferred = state.appearance.resolved;
+      const blob = await loadCustomWallpaper(preferred) ?? await loadCustomWallpaper(preferred === "dark" ? "light" : "dark");
+      if (!blob || disposed) return;
+      objectUrl = URL.createObjectURL(blob);
+      setCustomSource(objectUrl);
+    })().catch((error) => setMenuError(String(error)));
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [personalization.wallpaper.revision, personalization.wallpaper.useCustom, state.appearance.resolved]);
 
   useEffect(() => {
     if (!menu) return;
@@ -227,6 +260,60 @@ export function DeepField() {
     }
   };
 
+  const applyDesktopGrid = async (layout: GridLayoutId) => {
+    try {
+      const count = await snapWindowsToGrid(state.windows, actions, layout);
+      if (!count) setMenuError("There are no desktop windows to arrange.");
+      else setMenu(null);
+    } catch (error) {
+      setMenuError(String(error));
+    }
+  };
+
+  const fillGravityWells = async () => {
+    try {
+      const result = await distributeWindowsToWells(state.windows, wells, actions);
+      if (result.remaining) setMenuError(`${result.remaining} window${result.remaining === 1 ? "" : "s"} could not be stored because every Gravity Well is full.`);
+      else setMenu(null);
+    } catch (error) {
+      setMenuError(String(error));
+    }
+  };
+
+  const importWallpaper = async (file?: File) => {
+    if (!file) return;
+    try {
+      const theme = state.appearance.resolved;
+      await saveCustomWallpaper(theme, file);
+      setPersonalization((current) => ({ ...current, wallpaper: {
+        ...current.wallpaper,
+        useCustom: true,
+        customDarkName: theme === "dark" ? file.name : current.wallpaper.customDarkName,
+        customLightName: theme === "light" ? file.name : current.wallpaper.customLightName,
+        revision: Date.now(),
+      } }));
+      setMenu(null);
+    } catch (error) {
+      setMenuError(String(error));
+    } finally {
+      if (wallpaperInput.current) wallpaperInput.current.value = "";
+    }
+  };
+
+  const renderedSource = personalization.wallpaper.useCustom && customSource ? customSource : source;
+  const wallpaperStyle = {
+    backgroundImage: renderedSource ? `url(${renderedSource})` : undefined,
+    backgroundSize: personalization.wallpaper.fit,
+    backgroundPosition: personalization.wallpaper.position,
+    filter: `blur(${personalization.wallpaper.blur}px) saturate(${personalization.wallpaper.saturation})`,
+    "--wallpaper-dim": personalization.wallpaper.dim,
+    "--wallpaper-tint": personalization.wallpaper.tint,
+    "--wallpaper-tint-strength": personalization.wallpaper.tintStrength,
+  } as CSSProperties;
+  const wallpaperToneStyle = {
+    background: `linear-gradient(rgba(0,0,0,${personalization.wallpaper.dim}), rgba(0,0,0,${personalization.wallpaper.dim})), linear-gradient(${personalization.wallpaper.tint}${Math.round(personalization.wallpaper.tintStrength * 255).toString(16).padStart(2, "0")}, ${personalization.wallpaper.tint}${Math.round(personalization.wallpaper.tintStrength * 255).toString(16).padStart(2, "0")})`,
+  } as CSSProperties;
+
   return (
     <div
       className="deepField"
@@ -236,13 +323,13 @@ export function DeepField() {
       onKeyDown={openKeyboardMenu}
       onContextMenu={openMenu}
     >
-      {source ? (
-        <div className="deepField__image" style={{ backgroundImage: `url(${source})` }} />
+      {renderedSource ? (
+        <div className="deepField__image" style={wallpaperStyle} />
       ) : (
         <LiveDeepField light={state.appearance.resolved === "light"} />
       )}
-      <GravityWells />
-
+      <div className="deepField__wallpaperTone" style={wallpaperToneStyle} aria-hidden="true" />
+      <input ref={wallpaperInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/bmp" onChange={(event) => void importWallpaper(event.target.files?.[0])} />
       {menu && (
         <>
           <button className="desktopMenuDismiss" aria-label="Close desktop menu" onClick={() => setMenu(null)} />
@@ -273,7 +360,7 @@ export function DeepField() {
               className="desktopMenu__windows"
               role="menuitem"
               onClick={() => {
-                window.dispatchEvent(new CustomEvent("gravity:add-well"));
+                void sendWellCommand("add-well");
                 setMenu(null);
               }}
             >
@@ -284,7 +371,7 @@ export function DeepField() {
               className="desktopMenu__windows"
               role="menuitem"
               onClick={() => {
-                window.dispatchEvent(new CustomEvent("gravity:toggle-wells"));
+                void sendWellCommand("toggle-wells");
                 setMenu(null);
               }}
             >
@@ -304,8 +391,19 @@ export function DeepField() {
               <span className="desktopMenu__toolIcon" aria-hidden="true">↗</span>
               <span><strong>Release Stored Windows</strong><small>Restore every parked window to the desktop</small></span>
             </button>
+            <button className="desktopMenu__windows" role="menuitem" disabled={!wells.length} onClick={() => void fillGravityWells()}>
+              <span className="desktopMenu__toolIcon" aria-hidden="true">◎</span>
+              <span><strong>Snap windows to Gravity Wells</strong><small>Fill every available Well in order</small></span>
+            </button>
 
-            <div className="desktopMenu__heading">Shape organization</div>
+            <div className="desktopMenu__heading">Snap windows to grid</div>
+            <div className="desktopMenu__presets desktopMenu__presets--layouts" aria-label="Native window grid layouts">
+              {([['Halves', 'halves'], ['Thirds', 'thirds'], ['2 × 2', 'quarters'], ['3 × 2', 'six-pack'], ['3 × 3', 'nine-grid'], ['Focus', 'focus-left']] as const).map(([label, layout]) => (
+                <button key={layout} role="menuitem" onClick={() => void applyDesktopGrid(layout)}>{label}</button>
+              ))}
+            </div>
+
+            <div className="desktopMenu__heading">Gravity Well organization</div>
             <div className="desktopMenu__presets" aria-label="Desktop shape grid">
               {[
                 ["Free", null],
@@ -316,7 +414,7 @@ export function DeepField() {
                 ["8 × 5", { columns: 8, rows: 5 }],
               ].map(([label, detail]) => (
                 <button key={String(label)} role="menuitem" onClick={() => {
-                  window.dispatchEvent(new CustomEvent("gravity:organize-wells", { detail }));
+                  void sendWellCommand("organize-wells", detail);
                   setMenu(null);
                 }}>{String(label)}</button>
               ))}
@@ -324,7 +422,7 @@ export function DeepField() {
             <div className="desktopMenu__presets" aria-label="Desktop shape size">
               {[["Small", .8], ["Medium", 1], ["Large", 1.25]].map(([label, scale]) => (
                 <button key={String(label)} role="menuitem" onClick={() => {
-                  window.dispatchEvent(new CustomEvent("gravity:equalize-wells", { detail: { scale } }));
+                  void sendWellCommand("equalize-wells", { scale });
                   setMenu(null);
                 }}>{String(label)}</button>
               ))}
@@ -361,6 +459,22 @@ export function DeepField() {
                 );
               })}
             </div>
+            <button className="desktopMenu__windows" role="menuitem" onClick={() => wallpaperInput.current?.click()}>
+              <span className="desktopMenu__toolIcon" aria-hidden="true">＋</span>
+              <span><strong>Choose a personal wallpaper…</strong><small>Set the image for {state.appearance.resolved} appearance</small></span>
+            </button>
+
+            <div className="desktopMenu__heading">Orbit Dock</div>
+            <div className="desktopMenu__presets" aria-label="Dock icon size">
+              {[["Small", 42], ["Medium", 48], ["Large", 60]].map(([label, size]) => <button key={String(label)} role="menuitem" onClick={() => setPersonalization((current) => ({ ...current, dock: { ...current.dock, size: Number(size) } }))}>{String(label)}</button>)}
+            </div>
+            <div className="desktopMenu__presets" aria-label="Dock background material">
+              {(["floating", "glass", "solid"] as const).map((material) => <button key={material} className={personalization.dock.material === material ? "is-selected" : ""} role="menuitemradio" aria-checked={personalization.dock.material === material} onClick={() => setPersonalization((current) => ({ ...current, dock: { ...current.dock, material } }))}>{material}</button>)}
+            </div>
+            <button className="desktopMenu__windows" role="menuitem" onClick={() => { setMenu(null); void openOverlay("customization"); }}>
+              <span className="desktopMenu__toolIcon" aria-hidden="true">☷</span>
+              <span><strong>All Gravity customization…</strong><small>Dock, wallpapers, layouts, and Wells</small></span>
+            </button>
 
             <div className="desktopMenu__heading">System</div>
             <button

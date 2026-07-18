@@ -2,7 +2,7 @@
 //! recycle bin, and hands the taskbar over to Gravity.
 //!
 //! NOTE: this module is `#[cfg(windows)]`, so it is not compiled during
-//! macOS development. It must be built on a Windows host (see README).
+//! non-native development. It must be built on a Windows host.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -58,6 +58,9 @@ struct Internal {
     rules: Vec<WindowRule>,
     ruled_windows: HashSet<isize>,
     ignored_apps: HashSet<String>,
+    /// Last foreground application HWND observed before a Gravity surface
+    /// received focus. Horizon controls use this stable native target.
+    last_foreground_window: Option<isize>,
     last_notification_poll: std::time::Instant,
 }
 
@@ -101,6 +104,7 @@ impl WindowsPlatform {
                 rules: Vec::new(),
                 ruled_windows: HashSet::new(),
                 ignored_apps: HashSet::new(),
+                last_foreground_window: None,
                 last_notification_poll: std::time::Instant::now(),
             }),
             window_manager: WindowManager::default(),
@@ -123,6 +127,7 @@ struct WindowScan<'a> {
     active_orbit: &'a str,
     seen: &'a mut Vec<isize>,
     parked_wells: &'a HashMap<isize, String>,
+    last_foreground_window: &'a mut Option<isize>,
 }
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -173,13 +178,17 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         .or_insert_with(|| scan.active_orbit.to_string())
         .clone();
     scan.seen.push(key);
+    let focused = visible && hwnd == foreground;
+    if focused {
+        *scan.last_foreground_window = Some(key);
+    }
     scan.out.push(WindowInfo {
         id: hwnd_to_id(hwnd),
         app_id: appindex::app_id_for_window(hwnd, &title),
         title,
         minimized: IsIconic(hwnd).as_bool(),
         maximized: IsZoomed(hwnd).as_bool(),
-        focused: visible && hwnd == foreground,
+        focused,
         orbit_id,
         parked_well_id: scan.parked_wells.get(&key).cloned(),
     });
@@ -195,6 +204,7 @@ fn live_windows(inner: &mut Internal) -> Vec<WindowInfo> {
         active_orbit: &inner.active_orbit,
         seen: &mut seen,
         parked_wells: &inner.parked_wells,
+        last_foreground_window: &mut inner.last_foreground_window,
     };
     unsafe {
         let _ = EnumWindows(Some(enum_proc), LPARAM(&mut scan as *mut _ as isize));
@@ -203,7 +213,41 @@ fn live_windows(inner: &mut Internal) -> Vec<WindowInfo> {
         .window_orbits
         .retain(|handle, _| seen.contains(handle));
     inner.parked_wells.retain(|handle, _| seen.contains(handle));
+    if inner
+        .last_foreground_window
+        .is_some_and(|handle| !seen.contains(&handle))
+    {
+        inner.last_foreground_window = None;
+    }
     out
+}
+
+fn active_control_window(inner: &mut Internal) -> Option<HWND> {
+    let windows = live_windows(inner);
+    let target = super::snap::last_foreign_foreground()
+        .filter(|handle| {
+            windows.iter().any(|window| {
+                window.id == handle.to_string()
+                    && window.orbit_id == inner.active_orbit
+                    && !window.minimized
+            })
+        })
+        .or_else(|| {
+            inner.last_foreground_window.filter(|handle| {
+                windows.iter().any(|window| {
+                    window.id == handle.to_string()
+                        && window.orbit_id == inner.active_orbit
+                        && !window.minimized
+                })
+            })
+        })
+        .or_else(|| {
+            windows
+                .iter()
+                .find(|window| window.orbit_id == inner.active_orbit && !window.minimized)
+                .and_then(|window| window.id.parse::<isize>().ok())
+        })?;
+    Some(HWND(target as *mut c_void))
 }
 
 fn power_status(base: &mut SystemStatus) {
@@ -382,6 +426,44 @@ impl ShellPlatform for WindowsPlatform {
             .map_err(|error| error.to_string())
     }
 
+    fn active_window_control(&self, kind: &str) -> Result<(), String> {
+        if !matches!(kind, "close" | "minimize" | "zoom") {
+            return Err("Unknown active-window control".into());
+        }
+        let hwnd = {
+            let mut inner = self.inner.lock();
+            let hwnd = active_control_window(&mut inner)
+                .ok_or_else(|| "There is no active application window to control".to_string())?;
+            inner.parked_wells.remove(&(hwnd.0 as isize));
+            if matches!(kind, "close" | "minimize") {
+                inner.last_foreground_window = None;
+            }
+            hwnd
+        };
+        self.ensure_not_ignored(hwnd)?;
+        unsafe {
+            match kind {
+                "close" => PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0))
+                    .map_err(|error| error.to_string()),
+                "minimize" => {
+                    let _ = ShowWindow(hwnd, SW_MINIMIZE);
+                    Ok(())
+                }
+                "zoom" => {
+                    let command = if IsZoomed(hwnd).as_bool() {
+                        SW_RESTORE
+                    } else {
+                        SW_MAXIMIZE
+                    };
+                    let _ = ShowWindow(hwnd, command);
+                    let _ = SetForegroundWindow(hwnd);
+                    Ok(())
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
     fn window_action(&self, action: &str) -> Result<(), String> {
         let hwnd = unsafe { GetForegroundWindow() };
         if !hwnd.0.is_null() {
@@ -408,6 +490,21 @@ impl ShellPlatform for WindowsPlatform {
         self.ensure_not_ignored(hwnd)?;
         self.window_manager
             .place_unit(hwnd, UnitRect::new(x, y, width, height))
+    }
+
+    fn apply_grid_region_on_monitor(
+        &self,
+        window_id: &str,
+        monitor: usize,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String> {
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        self.ensure_not_ignored(hwnd)?;
+        self.window_manager
+            .place_unit_on_monitor(hwnd, UnitRect::new(x, y, width, height), monitor)
     }
 
     fn warp_window(&self, window_id: &str, operation: &str) -> Result<(), String> {

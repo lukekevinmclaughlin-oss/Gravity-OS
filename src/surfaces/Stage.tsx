@@ -10,12 +10,12 @@ import { Pulse } from "./Pulse";
 import { WindowStudio } from "./WindowStudio";
 import { AppLibrary } from "./AppLibrary";
 import { AboutGravity } from "./AboutGravity";
+import { CustomizationCenter } from "./CustomizationCenter";
 import { useShell } from "../shell/context";
 import type { OverlaySurface } from "../lib/win";
 import "./stage.css";
 
-/** Stage — the composed desktop. On macOS this is the dev harness with the
- *  mock machine; on Windows each surface also runs standalone in its own
+/** Stage — the composed development desktop. In production each surface runs in its own
  *  transparent Tauri window (see src-tauri). */
 
 export function Stage() {
@@ -59,12 +59,16 @@ export function Stage() {
         onOpenWindowStudio={() => setOverlay((current) => (current === "window-studio" ? null : "window-studio"))}
         onOpenAbout={() => setOverlay((current) => (current === "about" ? null : "about"))}
       />
-      <Orbit onOpenAppLibrary={() => setOverlay((current) => (current === "app-library" ? null : "app-library"))} />
+      <Orbit
+        onOpenAppLibrary={() => setOverlay((current) => (current === "app-library" ? null : "app-library"))}
+        onOpenCustomization={() => setOverlay((current) => (current === "customization" ? null : "customization"))}
+      />
       <Pulse />
       <Core open={overlay === "core"} onClose={() => setOverlay(null)} onToggleTheme={toggleTheme} daybreak={daybreak} />
       <Constellation open={overlay === "constellation"} onClose={() => setOverlay(null)} />
       <WindowStudio open={overlay === "window-studio"} onClose={() => setOverlay(null)} />
       <AppLibrary open={overlay === "app-library"} onClose={() => setOverlay(null)} />
+      <CustomizationCenter open={overlay === "customization"} onClose={() => setOverlay(null)} />
       <AboutGravity open={overlay === "about"} onClose={() => setOverlay(null)} />
       <Singularity
         open={overlay === "singularity"}

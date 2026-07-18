@@ -10,7 +10,7 @@ import type {
   WindowInfo,
 } from "./types";
 
-/** Simulated Windows 11 machine for developing the shell on macOS.
+/** Simulated Windows 11 machine for developing and testing the shell.
  *  Behaves like the real backend: apps launch with a delay, notifications
  *  arrive, the battery drains. */
 
@@ -157,6 +157,14 @@ export class MockShell implements ShellProviderI {
       }
       this.emit({ windows: this.state.windows.filter((w) => w.id !== id) });
     },
+    activeWindowControl: async (kind) => {
+      const target = this.state.windows.find((window) => window.focused && !window.minimized)
+        ?? this.state.windows.find((window) => !window.minimized);
+      if (!target) throw new Error("There is no active application window to control.");
+      if (kind === "close") return this.actions.closeWindow(target.id);
+      if (kind === "minimize") return this.actions.minimizeWindow(target.id);
+      return this.actions.toggleMaximizeWindow(target.id);
+    },
     windowAction: async (action) => {
       this.notify("Window Studio", "Layout applied", action);
     },
@@ -179,6 +187,8 @@ export class MockShell implements ShellProviderI {
       await this.actions.focusWindow(windowId);
       this.notify("Window Studio", "Grid region applied", `${Math.round(width * 6)} by ${Math.round(height * 4)} cells`);
     },
+    applyGridRegionOnMonitor: async (windowId, _monitor, x, y, width, height) =>
+      this.actions.applyGridRegion(windowId, x, y, width, height),
     warpWindow: async (windowId, operation) => {
       await this.actions.focusWindow(windowId);
       this.notify("Warp Mode", "Window adjusted", operation);
@@ -209,7 +219,27 @@ export class MockShell implements ShellProviderI {
         windows: this.state.windows.map((window) => ({ ...window, parkedWellId: undefined })),
       });
     },
+    beginDockWindowDrag: async () => {},
+    storeAppInWell: async (appId, wellId) => {
+      const existing = this.state.windows.find((window) => window.appId === appId && !window.parkedWellId);
+      if (existing) return this.actions.parkWindow(existing.id, wellId);
+      await this.actions.launchApp(appId);
+      setTimeout(() => {
+        const target = [...this.state.windows].reverse().find((item) => item.appId === appId);
+        if (target) void this.actions.parkWindow(target.id, wellId);
+      }, 700);
+    },
+    beginDockAppDrag: async () => {},
     registerDesktopWells: async () => {},
+    setWellSurfaceExpanded: async () => {},
+    registerDesktopTrashTarget: async () => {},
+    isDesktopTrashTarget: async (clientX, clientY) =>
+      Boolean(document.elementFromPoint(clientX, clientY)?.closest(".orbit__trash")),
+    desktopPointerLocation: async (clientX, clientY) => ({
+      monitor: Number(new URLSearchParams(window.location.search).get("monitor") ?? 0),
+      x: Math.max(0, Math.min(1, clientX / Math.max(1, window.innerWidth))),
+      y: Math.max(0, Math.min(1, clientY / Math.max(1, window.innerHeight))),
+    }),
     launchApp: async (appId) => {
       const targetApp = this.state.apps.find((item) => item.id === appId);
       if (!targetApp) throw new Error("That application is no longer installed.");

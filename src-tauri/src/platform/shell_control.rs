@@ -15,7 +15,8 @@ use std::sync::{Mutex, OnceLock};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT, TRUE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    CombineRgn, CreateRectRgn, DeleteObject, GetMonitorInfoW, MonitorFromWindow, SetWindowRgn,
+    HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, RGN_OR,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::{
@@ -24,8 +25,8 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, FindWindowExW, FindWindowW, IsWindowVisible, SendMessageTimeoutW, SetParent,
-    SetWindowPos, ShowWindow, HWND_TOPMOST, SMTO_NORMAL, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE,
-    SWP_NOOWNERZORDER, SW_HIDE, SW_SHOW,
+    SetWindowPos, ShowWindow, HWND_TOP, HWND_TOPMOST, SMTO_NORMAL, SWP_ASYNCWINDOWPOS,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_HIDE, SW_SHOW,
 };
 
 #[derive(Clone, Copy)]
@@ -295,7 +296,7 @@ pub fn set_shell_surface_expanded(
 /// Resize and center Orbit using native physical monitor coordinates. WebView2
 /// can expose a work-area-relative monitor origin while an AppBar transition
 /// is in flight; querying the HWND avoids that mixed-DPI offset entirely.
-pub fn fit_orbit_window(raw_hwnd: isize, app_count: u32) {
+pub fn fit_orbit_window(raw_hwnd: isize, app_count: u32, base_size: f64, magnification: f64) {
     let hwnd = HWND(raw_hwnd as *mut c_void);
     unsafe {
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
@@ -313,8 +314,15 @@ pub fn fit_orbit_window(raw_hwnd: isize, app_count: u32) {
         let dpi = GetDpiForWindow(hwnd).max(96);
         let monitor_width = info.rcMonitor.right - info.rcMonitor.left;
         let logical_monitor_width = monitor_width as f64 * 96.0 / dpi as f64;
-        let logical_width =
-            (92.0 + (app_count + 3) as f64 * 52.0 + 260.0).min(logical_monitor_width);
+        let base_size = base_size.clamp(38.0, 72.0);
+        let magnification = magnification.clamp(1.0, 2.35);
+        // Five permanent utilities (Windows, customization, appearance,
+        // Applications, Trash) plus spare width for the magnified target and
+        // its two spring-displaced neighbours.
+        let logical_width = (30.0
+            + (app_count + 5) as f64 * (base_size + 4.0)
+            + base_size * (magnification + 1.35))
+            .min(logical_monitor_width);
         let width = (logical_width * dpi as f64 / 96.0).ceil() as i32;
         let height = window_rect.bottom - window_rect.top;
         let x = info.rcMonitor.left + (monitor_width - width) / 2;
@@ -391,6 +399,62 @@ pub fn attach_to_desktop(raw_hwnd: isize) {
         };
         let _ = SetParent(HWND(raw_hwnd as *mut c_void), parent);
     }
+}
+
+/// Keep the region-shaped Well layer as a normal tool window. It stays above
+/// the Explorer desktop but naturally falls behind an activated application;
+/// cross-process parenting into WorkerW would break WebView pointer delivery.
+pub fn configure_well_interaction_layer(raw_hwnd: isize) {
+    unsafe {
+        let hwnd = HWND(raw_hwnd as *mut c_void);
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+/// Replace a Well surface's hit/draw region. Windows owns `combined` after a
+/// successful SetWindowRgn call; temporary rectangle regions are always freed.
+pub fn set_well_interaction_region(
+    raw_hwnd: isize,
+    width: i32,
+    height: i32,
+    rectangles: &[(i32, i32, i32, i32)],
+    expanded: bool,
+) -> Result<(), String> {
+    unsafe {
+        let combined = CreateRectRgn(
+            0,
+            0,
+            if expanded { width } else { 0 },
+            if expanded { height } else { 0 },
+        );
+        if combined.0.is_null() {
+            return Err("Windows could not allocate the Gravity Well hit region".into());
+        }
+        if !expanded {
+            for &(left, top, right, bottom) in rectangles {
+                let piece = CreateRectRgn(left, top, right, bottom);
+                if piece.0.is_null() {
+                    let _ = DeleteObject(HGDIOBJ(combined.0));
+                    return Err("Windows could not allocate a Gravity Well control region".into());
+                }
+                let _ = CombineRgn(combined, combined, piece, RGN_OR);
+                let _ = DeleteObject(HGDIOBJ(piece.0));
+            }
+        }
+        if SetWindowRgn(HWND(raw_hwnd as *mut c_void), combined, TRUE) == 0 {
+            let _ = DeleteObject(HGDIOBJ(combined.0));
+            return Err("Windows rejected the Gravity Well interaction region".into());
+        }
+    }
+    Ok(())
 }
 
 fn taskbar_windows() -> Vec<Vec<u16>> {

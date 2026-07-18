@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
-import { fitPulseWindow } from "../lib/win";
+import { fitPulseWindow, setPulseInteractionRegion } from "../lib/win";
 import { isTauri } from "../shell/tauri";
 import "./pulse.css";
 
 /** Pulse — notifications drift in on a decaying orbit and settle. */
 
 const LINGER_MS = 7000;
+const MAX_TRANSIENT_NOTIFICATIONS = 5;
 
 export function Pulse() {
   const { state, actions } = useShell();
@@ -74,11 +75,48 @@ export function Pulse() {
 
   const visible = state.status.focus
     ? []
-    : state.notifications.filter((notification) => !hidden.has(notification.id));
+    : state.notifications
+        .filter((notification) => !hidden.has(notification.id))
+        .slice(0, MAX_TRANSIENT_NOTIFICATIONS);
 
   useEffect(() => {
     void fitPulseWindow(visible.length);
   }, [visible.length]);
+
+  useLayoutEffect(() => {
+    if (!isTauri() || visible.length === 0) return;
+    let disposed = false;
+    let frame = 0;
+    const publish = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (disposed) return;
+        const rectangles = [...document.querySelectorAll<HTMLElement>("[data-pulse-hit]")]
+          .map((element) => element.getBoundingClientRect())
+          .map((rect) => {
+            const left = Math.max(0, rect.left - 56);
+            const top = Math.max(0, rect.top - 18);
+            const right = Math.min(window.innerWidth, rect.right + 20);
+            const bottom = Math.min(window.innerHeight, rect.bottom + 22);
+            return right - left >= 1 && bottom - top >= 1
+              ? { left, top, width: right - left, height: bottom - top }
+              : null;
+          })
+          .filter((rectangle): rectangle is NonNullable<typeof rectangle> => rectangle !== null);
+        void setPulseInteractionRegion(rectangles).catch((reason) => setError(String(reason)));
+      });
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(publish);
+    document.querySelectorAll<HTMLElement>("[data-pulse-hit]").forEach((element) => observer?.observe(element));
+    publish();
+    window.addEventListener("resize", publish);
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", publish);
+    };
+  }, [visible.length, leaving.size, error]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -98,6 +136,7 @@ export function Pulse() {
       {visible.map((n) => (
         <div
           key={n.id}
+          data-pulse-hit
           className={`pulse__toast glass-heavy lens ${leaving.has(n.id) ? "is-leaving" : ""}`}
         >
           <AppTile name={n.appName} hue={n.hue} size={32} />
@@ -111,7 +150,7 @@ export function Pulse() {
           </button>
         </div>
       ))}
-      {error && <button className="pulse__error glass-heavy" role="alert" onClick={() => setError(null)}>{error}</button>}
+      {error && <button data-pulse-hit className="pulse__error glass-heavy" role="alert" onClick={() => setError(null)}>{error}</button>}
     </div>
   );
 }

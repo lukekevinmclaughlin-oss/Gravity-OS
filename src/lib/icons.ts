@@ -32,7 +32,7 @@ function compose(payload: IconPayload, hue: number): string | null {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  // Hue-tinted plate — Gravity's own container, not an Apple asset.
+  // Hue-tinted plate — Gravity's own icon container.
   platePath(ctx, size);
   const g = ctx.createLinearGradient(0, 0, size * 0.4, size);
   g.addColorStop(0, `hsl(${hue} 34% 30%)`);
@@ -90,7 +90,10 @@ export function useAppIcon(appId: string, hue: number): string | null {
     let p = inflight.get(appId);
     if (!p) {
       p = fetchIcon(appId, hue).then((u) => {
-        cache.set(appId, u);
+        // Do not make a transient shell/COM extraction failure permanent for
+        // the session; another surface may retry once Windows finishes
+        // registering a newly installed or updated application.
+        if (u) cache.set(appId, u);
         inflight.delete(appId);
         return u;
       });

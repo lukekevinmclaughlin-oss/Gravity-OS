@@ -11,8 +11,6 @@ actions. Window layouts, workspaces, scenes, rules, notifications, radios,
 brightness, volume, appearance, wallpapers, and system actions are backed by
 Windows APIs and persisted across sessions.
 
-No Apple artwork, fonts, symbols, wallpaper, or branding is included.
-
 ## Experience
 
 | Surface | Function |

@@ -14,6 +14,24 @@ fn default_wallpaper() -> String {
     "deep-field".into()
 }
 
+const SHORTCUT_SCHEMA_VERSION: u32 = 2;
+const SHORTCUT_SCHEMA_V2_ACTIONS: &[&str] = &[
+    "open-window-studio",
+    "minimize-active",
+    "close-active",
+    "toggle-appearance",
+    "new-well",
+    "store-well-1",
+    "store-well-2",
+    "store-well-3",
+    "store-well-4",
+    "store-well-5",
+    "store-well-6",
+    "store-well-7",
+    "store-well-8",
+    "store-well-9",
+];
+
 pub fn default_shortcuts() -> BTreeMap<String, String> {
     [
         ("left-half", "ctrl+alt+left"),
@@ -56,6 +74,20 @@ pub fn default_shortcuts() -> BTreeMap<String, String> {
         ("toggle-shapes", "ctrl+alt+o"),
         ("equalize-shapes", "ctrl+alt+shift+e"),
         ("release-parked-windows", "ctrl+alt+shift+o"),
+        ("open-window-studio", "ctrl+alt+0"),
+        ("minimize-active", "ctrl+alt+n"),
+        ("close-active", "ctrl+alt+q"),
+        ("toggle-appearance", "ctrl+alt+y"),
+        ("new-well", "ctrl+alt+shift+n"),
+        ("store-well-1", "ctrl+alt+1"),
+        ("store-well-2", "ctrl+alt+2"),
+        ("store-well-3", "ctrl+alt+3"),
+        ("store-well-4", "ctrl+alt+4"),
+        ("store-well-5", "ctrl+alt+5"),
+        ("store-well-6", "ctrl+alt+6"),
+        ("store-well-7", "ctrl+alt+7"),
+        ("store-well-8", "ctrl+alt+8"),
+        ("store-well-9", "ctrl+alt+9"),
     ]
     .into_iter()
     .map(|(action, binding)| (action.into(), binding.into()))
@@ -77,6 +109,7 @@ struct UserSettings {
     launch_at_login: bool,
     scene_auto_restore: bool,
     shortcuts: BTreeMap<String, String>,
+    shortcut_schema_version: u32,
 }
 
 impl Default for UserSettings {
@@ -93,6 +126,7 @@ impl Default for UserSettings {
             launch_at_login: false,
             scene_auto_restore: true,
             shortcuts: default_shortcuts(),
+            shortcut_schema_version: 0,
         }
     }
 }
@@ -105,10 +139,28 @@ pub struct SettingsStore {
 impl SettingsStore {
     pub fn load() -> Self {
         let path = settings_path();
-        let inner = std::fs::read(&path)
+        let mut inner: UserSettings = std::fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        if inner.shortcut_schema_version < SHORTCUT_SCHEMA_VERSION {
+            let defaults = default_shortcuts();
+            for action in SHORTCUT_SCHEMA_V2_ACTIONS {
+                if let Some(binding) = defaults.get(*action) {
+                    inner
+                        .shortcuts
+                        .entry((*action).to_string())
+                        .or_insert_with(|| binding.clone());
+                }
+            }
+            inner.shortcut_schema_version = SHORTCUT_SCHEMA_VERSION;
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(bytes) = serde_json::to_vec_pretty(&inner) {
+                let _ = std::fs::write(&path, bytes);
+            }
+        }
         Self {
             path,
             inner: Mutex::new(inner),

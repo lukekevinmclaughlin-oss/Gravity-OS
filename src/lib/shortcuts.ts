@@ -1,6 +1,6 @@
 export interface ShortcutDefinition {
   id: string;
-  group: "Layouts" | "Sizing" | "Displays & windows" | "Advanced" | "Focus" | "Scenes & shapes";
+  group: "Layouts" | "Sizing" | "Displays & windows" | "Advanced" | "Focus" | "Scenes & shapes" | "Shell & Wells";
   label: string;
   detail: string;
   defaultBinding: string;
@@ -45,6 +45,18 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   { id: "toggle-shapes", group: "Scenes & shapes", label: "Show or hide shapes", detail: "Stored windows stay safely parked", defaultBinding: "ctrl+alt+o" },
   { id: "equalize-shapes", group: "Scenes & shapes", label: "Equalize shape sizes", detail: "Return every shape to medium", defaultBinding: "ctrl+alt+shift+e" },
   { id: "release-parked-windows", group: "Scenes & shapes", label: "Release parked windows", detail: "Bring every stored window back", defaultBinding: "ctrl+alt+shift+o" },
+  { id: "open-window-studio", group: "Shell & Wells", label: "Window Studio", detail: "Open Gravity's full window controls", defaultBinding: "ctrl+alt+0" },
+  { id: "minimize-active", group: "Shell & Wells", label: "Minimize active window", detail: "Send the active window into Orbit", defaultBinding: "ctrl+alt+n" },
+  { id: "close-active", group: "Shell & Wells", label: "Close active window", detail: "Close the foreground application window", defaultBinding: "ctrl+alt+q" },
+  { id: "toggle-appearance", group: "Shell & Wells", label: "Toggle Daybreak", detail: "Switch between light and dark appearance", defaultBinding: "ctrl+alt+y" },
+  { id: "new-well", group: "Shell & Wells", label: "Create Gravity Well", detail: "Add a new Well on the active display", defaultBinding: "ctrl+alt+shift+n" },
+  ...Array.from({ length: 9 }, (_, index) => ({
+    id: `store-well-${index + 1}`,
+    group: "Shell & Wells" as const,
+    label: `Store in Gravity Well ${index + 1}`,
+    detail: `Store the active window in Well ${index + 1}`,
+    defaultBinding: `ctrl+alt+${index + 1}`,
+  })),
 ];
 
 export const DEFAULT_SHORTCUTS = Object.fromEntries(

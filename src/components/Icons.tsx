@@ -133,6 +133,18 @@ export function GridIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** Sliders glyph for the global Gravity customization center. */
+export function SlidersIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}>
+      <path d="M4 6h5M15 6h5M4 12h9M18 12h2M4 18h2M12 18h8" />
+      <circle cx="12" cy="6" r="2.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="12" r="2.2" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="18" r="2.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Familiar four-pane system glyph for the explicit Windows handoff. */
 export function WindowsIcon({ size = 16 }: IconProps) {
   return (

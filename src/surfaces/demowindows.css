@@ -46,7 +46,7 @@
   transition: all var(--t-light) var(--ease-mass);
 }
 /* Gravity traffic-light trio (spec §9): coral/gold/mint — colored on the
-   focused window, neutral on unfocused ones, exactly the macOS grammar
+   focused window and neutral on unfocused ones, following Gravity's grammar
    with Gravity's own hues. */
 .demoWin.is-focused .demoWin__orb.is-close {
   background: var(--danger);

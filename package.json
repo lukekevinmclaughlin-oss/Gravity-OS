@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Gravity OS — a macOS-Tahoe-class shell replacement for Windows 11 with its own mass-and-orbit design language.",
+  "description": "Gravity OS — a frontier desktop environment for Windows 11 with its own mass-and-orbit design language.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

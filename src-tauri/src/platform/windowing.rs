@@ -159,21 +159,25 @@ impl WindowManager {
     }
 
     pub fn place_unit(&self, hwnd: HWND, unit: UnitRect) -> Result<(), String> {
-        if !unit.x.is_finite()
-            || !unit.y.is_finite()
-            || !unit.width.is_finite()
-            || !unit.height.is_finite()
-            || unit.x < 0.0
-            || unit.y < 0.0
-            || unit.width <= 0.0
-            || unit.height <= 0.0
-            || unit.x + unit.width > 1.000_001
-            || unit.y + unit.height > 1.000_001
-        {
-            return Err("Grid regions must stay inside the visible display".into());
-        }
+        validate_unit_rect(unit)?;
         let current = window_rect(hwnd)?;
         let visible = work_area(hwnd)?;
+        self.remember(hwnd, current);
+        move_window(hwnd, unit.resolve(visible, self.preferences.lock().gap))
+    }
+
+    pub fn place_unit_on_monitor(
+        &self,
+        hwnd: HWND,
+        unit: UnitRect,
+        monitor: usize,
+    ) -> Result<(), String> {
+        validate_unit_rect(unit)?;
+        let visible = monitor_work_areas()
+            .get(monitor)
+            .copied()
+            .ok_or_else(|| "That destination display is no longer available".to_string())?;
+        let current = window_rect(hwnd)?;
         self.remember(hwnd, current);
         move_window(hwnd, unit.resolve(visible, self.preferences.lock().gap))
     }
@@ -387,6 +391,23 @@ impl WindowManager {
             }
         }
     }
+}
+
+fn validate_unit_rect(unit: UnitRect) -> Result<(), String> {
+    if !unit.x.is_finite()
+        || !unit.y.is_finite()
+        || !unit.width.is_finite()
+        || !unit.height.is_finite()
+        || unit.x < 0.0
+        || unit.y < 0.0
+        || unit.width <= 0.0
+        || unit.height <= 0.0
+        || unit.x + unit.width > 1.000_001
+        || unit.y + unit.height > 1.000_001
+    {
+        return Err("Grid regions must stay inside the visible display".into());
+    }
+    Ok(())
 }
 
 fn process_id(hwnd: HWND) -> u32 {

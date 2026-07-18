@@ -3,36 +3,19 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AppTile } from "../components/AppTile";
 import { useShell } from "../shell/context";
+import {
+  colorForWell,
+  createDefaultWell as defaultWell,
+  readDesktopWells as loadWells,
+  WELL_CAPACITY as CAPACITY,
+  WELL_COLORS as COLORS,
+  WELL_GRID_STORAGE_KEY as GRID_STORAGE_KEY,
+  WELL_KINDS as KINDS,
+  WELL_STORAGE_KEY as STORAGE_KEY,
+  writeDesktopWells,
+} from "../lib/wells";
+import type { WellDefinition } from "../lib/wells";
 import "./gravity-wells.css";
-
-type WellKind = "cube" | "pyramid" | "prism" | "hexagon" | "column" | "orb" | "ring" | "slab" | "carousel";
-type WellColor = "emerald" | "ocean" | "ice" | "indigo" | "violet" | "rose" | "crimson" | "amber" | "gold" | "copper" | "graphite";
-
-interface WellDefinition {
-  id: string;
-  name: string;
-  kind: WellKind;
-  color: WellColor;
-  x: number;
-  y: number;
-  scale: number;
-  monitor: number;
-  rotation: number;
-}
-
-const STORAGE_KEY = "gravity.desktop-wells.v1";
-const GRID_STORAGE_KEY = "gravity.desktop-wells.grid.v1";
-const KINDS: WellKind[] = ["cube", "pyramid", "prism", "hexagon", "column", "orb", "ring", "slab", "carousel"];
-const COLORS: WellColor[] = ["emerald", "ocean", "ice", "indigo", "violet", "rose", "crimson", "amber", "gold", "copper", "graphite"];
-const CAPACITY: Record<WellKind, number> = {
-  cube: 6, pyramid: 4, prism: 3, hexagon: 6, column: 8,
-  orb: 8, ring: 10, slab: 2, carousel: 12,
-};
-const COLOR: Record<WellColor, string> = {
-  emerald: "#42e6a4", ocean: "#49b7ff", ice: "#a9e8ff", indigo: "#7288ff",
-  violet: "#b783ff", rose: "#ff87b7", crimson: "#ff626f", amber: "#f4b84b",
-  gold: "#f6d365", copper: "#d58a59", graphite: "#9aa0ad",
-};
 
 interface WellGrid {
   columns: number;
@@ -49,28 +32,17 @@ function loadGrid(): WellGrid | null {
   return null;
 }
 
-function defaultWell(monitor = 0, index = 0): WellDefinition {
-  return {
-    id: `well-${Date.now()}-${index}`,
-    name: `Gravity Well ${index + 1}`,
-    kind: KINDS[index % KINDS.length],
-    color: COLORS[index % COLORS.length],
-    x: Math.min(.78, .18 + index * .12),
-    y: Math.max(.2, .68 - index * .08),
-    scale: 1,
-    monitor,
-    rotation: 0,
-  };
-}
-
-function loadWells(): WellDefinition[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as WellDefinition[] | null;
-    if (Array.isArray(parsed) && parsed.length) return parsed;
-  } catch {
-    // A clean default replaces corrupt or legacy client-only shape data.
+function normalizedWellPosition(x: number, y: number, grid: WellGrid | null) {
+  let nextX = Math.max(.04, Math.min(.96, x));
+  let nextY = Math.max(.08, Math.min(.9, y));
+  if (grid) {
+    nextX = (Math.round(nextX * grid.columns - .5) + .5) / grid.columns;
+    nextY = (Math.round(nextY * grid.rows - .5) + .5) / grid.rows;
   }
-  return [defaultWell()];
+  return {
+    x: Math.max(.04, Math.min(.96, nextX)),
+    y: Math.max(.08, Math.min(.9, nextY)),
+  };
 }
 
 export function GravityWells() {
@@ -80,13 +52,23 @@ export function GravityWells() {
   const [grid, setGrid] = useState<WellGrid | null>(loadGrid);
   const [visible, setVisible] = useState(true);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [settingsWellId, setSettingsWellId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [hoverWell, setHoverWell] = useState<string | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<{ id: string; accepting: boolean } | null>(null);
+  const [draggingWellId, setDraggingWellId] = useState<string | null>(null);
   const suppressRelease = useRef(new Set<string>());
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(wells));
-  }, [wells]);
+    const timer = window.setTimeout(() => writeDesktopWells(wells), draggingWellId ? 140 : 0);
+    return () => window.clearTimeout(timer);
+  }, [wells, draggingWellId]);
+
+  useEffect(() => {
+    void actions.setWellSurfaceExpanded(Boolean(menu || settingsWellId || draggingWellId)).catch((error) => setMessage(String(error)));
+    return () => {
+      void actions.setWellSurfaceExpanded(false).catch(() => undefined);
+    };
+  }, [actions, menu, settingsWellId, draggingWellId]);
 
   useEffect(() => {
     if (grid) localStorage.setItem(GRID_STORAGE_KEY, JSON.stringify(grid));
@@ -101,29 +83,46 @@ export function GravityWells() {
         x: well.x,
         y: well.y,
         radius: 78 * well.scale,
+        capacity: CAPACITY[well.kind],
+        occupied: state.windows.filter((window) => window.parkedWellId === well.id).length,
       }))).catch((error) => setMessage(String(error)));
     }, 90);
     return () => window.clearTimeout(timer);
-  }, [wells, visible, actions]);
+  }, [wells, visible, actions, state.windows]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     let unlistenHover: (() => void) | undefined;
     let unlistenCommand: (() => void) | undefined;
-    void listen<{ wellId?: string | null }>("gravity://well-hover", (event) => {
-      setHoverWell(event.payload.wellId ?? null);
+    void listen<{ wellId?: string | null; accepting?: boolean }>("gravity://well-hover", (event) => {
+      const id = event.payload.wellId ?? null;
+      setHoverTarget(id ? { id, accepting: event.payload.accepting !== false } : null);
     }).then((dispose) => { unlistenHover = dispose; });
-    void listen<{ command?: string }>("gravity://well-command", (event) => {
-      if (event.payload.command === "toggle-shapes") setVisible((current) => !current);
-      if (event.payload.command === "equalize-shapes") {
-        setWells((current) => current.map((well) => ({ ...well, scale: 1 })));
+    void listen<{ command?: string; detail?: WellGrid | { scale?: number } | null }>("gravity://well-command", (event) => {
+      const { command, detail } = event.payload;
+      if (command === "toggle-shapes" || command === "toggle-wells") setVisible((current) => !current);
+      if (command === "add-well") setWells((current) => [...current, defaultWell(monitor, current.length)]);
+      if (command === "equalize-shapes" || command === "equalize-wells") {
+        const scale = Number((detail as { scale?: number } | null)?.scale ?? 1);
+        setWells((current) => current.map((well) => ({ ...well, scale: Number.isFinite(scale) ? Math.max(.7, Math.min(1.5, scale)) : 1 })));
+      }
+      if (command === "organize-wells") {
+        const grid = detail as WellGrid | null;
+        if (!grid) setGrid(null);
+        else if (grid.columns > 0 && grid.rows > 0) setGrid(grid);
       }
     }).then((dispose) => { unlistenCommand = dispose; });
     return () => {
       unlistenHover?.();
       unlistenCommand?.();
     };
-  }, []);
+  }, [monitor]);
 
   useEffect(() => {
     const sync = (event: StorageEvent) => {
@@ -184,46 +183,77 @@ export function GravityWells() {
       await Promise.all((parked.get(well.id) ?? []).map((window) => actions.releaseWindow(window.id)));
       setWells((current) => current.filter((item) => item.id !== well.id));
       setMenu(null);
+      setSettingsWellId((current) => current === well.id ? null : current);
       setMessage(`${well.name} removed. Its windows were safely released.`);
     } catch (error) {
       setMessage(String(error));
     }
   };
 
+  const releaseEvery = async (well: WellDefinition, intoOrbit = false) => {
+    const occupants = parked.get(well.id) ?? [];
+    try {
+      for (const window of occupants) {
+        await actions.releaseWindow(window.id);
+        if (intoOrbit) await actions.minimizeWindow(window.id);
+      }
+      setMenu(null);
+      setMessage(occupants.length
+        ? `${occupants.length} window${occupants.length === 1 ? "" : "s"} released ${intoOrbit ? "into Orbit" : "to the desktop"}.`
+        : `${well.name} is already empty.`);
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+
+  const createWell = (openSettings = false) => {
+    const next = defaultWell(monitor, wells.length);
+    setWells((current) => [...current, next]);
+    setMenu(null);
+    if (openSettings) setSettingsWellId(next.id);
+    setMessage(`${next.name} created.`);
+  };
+
   const beginMove = (event: ReactPointerEvent<HTMLButtonElement>, well: WellDefinition) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingWellId(well.id);
     let lastX = event.clientX;
     let lastY = event.clientY;
     const move = (next: PointerEvent) => {
       lastX = next.clientX;
       lastY = next.clientY;
-      let x = Math.max(.04, Math.min(.96, next.clientX / Math.max(1, window.innerWidth)));
-      let y = Math.max(.08, Math.min(.9, next.clientY / Math.max(1, window.innerHeight)));
-      if (grid) {
-        x = (Math.round(x * grid.columns - .5) + .5) / grid.columns;
-        y = (Math.round(y * grid.rows - .5) + .5) / grid.rows;
-      }
-      updateWell(well.id, {
-        x: Math.max(.04, Math.min(.96, x)),
-        y: Math.max(.08, Math.min(.9, y)),
-      });
+      updateWell(well.id, normalizedWellPosition(
+        next.clientX / Math.max(1, window.innerWidth),
+        next.clientY / Math.max(1, window.innerHeight),
+        grid,
+      ));
     };
-    const finish = () => {
+    const finish = (next: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
-      const exactTrash = document.elementFromPoint(lastX, lastY)?.closest(".orbit__trash");
-      const dockWidth = Math.min(window.innerWidth - 16, 650);
-      const nativeTrashFallback = lastY >= window.innerHeight - 170
-        && lastX >= window.innerWidth / 2 + dockWidth / 2 - 88
-        && lastX <= window.innerWidth / 2 + dockWidth / 2;
-      if (exactTrash || nativeTrashFallback) {
-        void removeWell(well);
-      }
+      window.removeEventListener("pointercancel", finish);
+      lastX = next.clientX;
+      lastY = next.clientY;
+      void actions.isDesktopTrashTarget(lastX, lastY).then(async (overTrash) => {
+        if (overTrash) {
+          await removeWell(well);
+          return;
+        }
+        const destination = await actions.desktopPointerLocation(lastX, lastY);
+        const position = normalizedWellPosition(destination.x, destination.y, grid);
+        updateWell(well.id, { ...position, monitor: destination.monitor });
+        if (destination.monitor !== well.monitor) {
+          setMessage(`${well.name} moved to Display ${destination.monitor + 1}.`);
+        }
+      }).catch((error) => setMessage(String(error))).finally(() => {
+        window.setTimeout(() => setDraggingWellId(null), 180);
+      });
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
   };
 
   const beginReleaseDrag = (event: ReactPointerEvent<HTMLButtonElement>, windowId: string) => {
@@ -243,14 +273,29 @@ export function GravityWells() {
       if (!moved) return;
       const width = .42;
       const height = .48;
-      const x = Math.max(0, Math.min(1 - width, next.clientX / Math.max(1, window.innerWidth) - width / 2));
-      const y = Math.max(0, Math.min(1 - height, next.clientY / Math.max(1, window.innerHeight) - height / 2));
-      void actions.releaseWindow(windowId)
-        .then(() => next.clientY >= window.innerHeight - 170
-          ? actions.minimizeWindow(windowId)
-          : actions.applyGridRegion(windowId, x, y, width, height))
-        .then(() => setMessage(next.clientY >= window.innerHeight - 170 ? "Window released into Orbit." : "Window released onto the desktop."))
-        .catch((error) => setMessage(String(error)));
+      void actions.isDesktopTrashTarget(next.clientX, next.clientY).then(async (overTrash) => {
+        const destination = overTrash
+          ? null
+          : await actions.desktopPointerLocation(next.clientX, next.clientY);
+        await actions.releaseWindow(windowId);
+        if (overTrash) {
+          await actions.minimizeWindow(windowId);
+          setMessage("Window released into Orbit.");
+          return;
+        }
+        if (!destination) return;
+        const x = Math.max(0, Math.min(1 - width, destination.x - width / 2));
+        const y = Math.max(0, Math.min(1 - height, destination.y - height / 2));
+        await actions.applyGridRegionOnMonitor(
+          windowId,
+          destination.monitor,
+          x,
+          y,
+          width,
+          height,
+        );
+        setMessage(`Window released onto Display ${destination.monitor + 1}.`);
+      }).catch((error) => setMessage(String(error)));
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", finish, { once: true });
@@ -262,26 +307,29 @@ export function GravityWells() {
     <div className="gravityWells" aria-label="Gravity desktop shapes">
       {wells.filter((well) => well.monitor === monitor).map((well) => {
         const occupants = parked.get(well.id) ?? [];
-        const color = COLOR[well.color];
+        const capacity = CAPACITY[well.kind];
+        const full = occupants.length >= capacity;
+        const color = colorForWell(well);
         const style = {
           left: `${well.x * 100}%`,
           top: `${well.y * 100}%`,
           "--well-scale": well.scale,
           "--well-color": color,
+          "--well-fill": Math.min(1, occupants.length / capacity),
         } as CSSProperties;
         return (
           <section
             key={well.id}
-            className={`gravityWell gravityWell--${well.kind} ${hoverWell === well.id ? "is-drop-target" : ""}`}
+            className={`gravityWell gravityWell--${well.kind} ${draggingWellId === well.id ? "is-dragging" : ""} ${full ? "is-full" : ""} ${hoverTarget?.id === well.id ? hoverTarget.accepting ? "is-drop-target" : "is-drop-blocked" : ""}`}
             style={style}
-            aria-label={`${well.name}, ${occupants.length} of ${CAPACITY[well.kind]} windows`}
+            aria-label={`${well.name}, ${occupants.length} of ${capacity} windows${full ? ", full" : ""}`}
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
               setMenu({
                 id: well.id,
-                x: Math.max(12, Math.min(event.clientX, window.innerWidth - 246)),
-                y: Math.max(42, Math.min(event.clientY, window.innerHeight - 342)),
+                x: Math.max(12, Math.min(event.clientX, window.innerWidth - 310)),
+                y: Math.max(42, Math.min(event.clientY, window.innerHeight - 630)),
               });
             }}
             onWheel={(event) => {
@@ -304,7 +352,9 @@ export function GravityWells() {
               <span className="gravityWell__core" aria-hidden="true" />
             </button>
             <span className="gravityWell__name">{well.name}</span>
-            <span className="gravityWell__count">{occupants.length}/{CAPACITY[well.kind]}</span>
+            <span className="gravityWell__count" title={full ? "This shape is full" : `${capacity - occupants.length} spaces available`}>
+              {full ? "Full" : `${occupants.length}/${capacity}`}
+            </span>
             <div className="gravityWell__faces">
               {occupants.map((window, index) => {
                 const app = state.apps.find((item) => item.id === window.appId);
@@ -339,23 +389,98 @@ export function GravityWells() {
           <>
             <button className="wellMenuDismiss" aria-label="Close shape menu" onClick={() => setMenu(null)} />
             <div className="wellMenu glass-heavy" role="menu" style={{ left: menu.x, top: menu.y }}>
-              <strong>{well.name}</strong>
-              <button role="menuitem" disabled={!activeWindow} onClick={() => void storeActive(well)}>Store active window</button>
-              <button role="menuitem" disabled={!(parked.get(well.id)?.length)} onClick={() => {
-                void Promise.all((parked.get(well.id) ?? []).map((window) => actions.releaseWindow(window.id)))
-                  .then(() => setMenu(null)).catch((error) => setMessage(String(error)));
-              }}>Release every window</button>
-              <label>Shape<select value={well.kind} onChange={(event) => updateWell(well.id, { kind: event.target.value as WellKind })}>
-                {KINDS.map((kind) => <option key={kind} value={kind}>{kind} · {CAPACITY[kind]} windows</option>)}
-              </select></label>
-              <label>Color<select value={well.color} onChange={(event) => updateWell(well.id, { color: event.target.value as WellColor })}>
-                {COLORS.map((color) => <option key={color} value={color}>{color}</option>)}
-              </select></label>
+              <div className="wellMenu__header">
+                <span className="wellMenu__glyph" style={{ "--menu-well-color": colorForWell(well) } as CSSProperties}><i /></span>
+                <span><strong>{well.name}</strong><small>{parked.get(well.id)?.length ?? 0} of {CAPACITY[well.kind]} windows</small></span>
+              </div>
+              <button role="menuitem" disabled={!activeWindow} onClick={() => void storeActive(well)}><span>Store active window</span><small>Double-click</small></button>
+              <button role="menuitem" disabled={!(parked.get(well.id)?.length)} onClick={() => void releaseEvery(well)}><span>Release all to desktop</span><small>{parked.get(well.id)?.length ?? 0}</small></button>
+              <button role="menuitem" disabled={!(parked.get(well.id)?.length)} onClick={() => void releaseEvery(well, true)}><span>Release all into Orbit</span></button>
+              {(parked.get(well.id) ?? []).map((window) => (
+                <button className="wellMenu__window" role="menuitem" key={window.id} onClick={() => {
+                  void actions.releaseWindow(window.id).then(() => setMessage(`${window.title} released.`)).catch((error) => setMessage(String(error)));
+                }}><span>{window.title}</span><small>Release</small></button>
+              ))}
+              <span className="wellMenu__sep" />
+              <details className="wellMenu__picker">
+                <summary><span>Shape</span><b>{well.kind} · {CAPACITY[well.kind]} windows</b></summary>
+                <div className="wellMenu__kindGrid">
+                  {KINDS.map((kind) => <button key={kind} className={well.kind === kind ? "is-selected" : ""} onClick={() => updateWell(well.id, { kind })}><i className={`is-${kind}`} /><span>{kind}</span><small>{CAPACITY[kind]}</small></button>)}
+                </div>
+              </details>
+              <details className="wellMenu__picker">
+                <summary><span>Color</span><b>{well.color}</b></summary>
+                <div className="wellMenu__colorGrid">
+                  {COLORS.filter((color) => color !== "custom").map((color) => <button key={color} className={well.color === color ? "is-selected" : ""} style={{ "--swatch": colorForWell({ color }) } as CSSProperties} aria-label={color} title={color} onClick={() => updateWell(well.id, { color })} />)}
+                  <label className={well.color === "custom" ? "is-selected" : ""} title="Custom color"><input type="color" value={well.customColor ?? "#42e6a4"} onChange={(event) => updateWell(well.id, { color: "custom", customColor: event.target.value })} /><span style={{ "--swatch": well.customColor ?? "#42e6a4" } as CSSProperties}>+</span></label>
+                </div>
+              </details>
+              {well.color === "custom" && <label>Custom<input type="color" value={well.customColor ?? "#42e6a4"} onChange={(event) => updateWell(well.id, { customColor: event.target.value })} /></label>}
               <label>Size<input type="range" min="0.7" max="1.5" step="0.05" value={well.scale} onChange={(event) => updateWell(well.id, { scale: Number(event.target.value) })} /></label>
               <span className="wellMenu__sep" />
-              <button role="menuitem" onClick={() => setWells((current) => [...current, defaultWell(monitor, current.length)])}>Add another shape</button>
-              <button className="is-danger" role="menuitem" onClick={() => void removeWell(well)}>Remove shape</button>
+              <button className="wellMenu__settings" role="menuitem" onClick={() => { setMenu(null); setSettingsWellId(well.id); }}><span>Gravity Well Settings…</span><small>Full controls</small></button>
+              <button role="menuitem" onClick={() => createWell(true)}>Create new Gravity Well</button>
+              <button className="is-danger" role="menuitem" onClick={() => void removeWell(well)}>Remove Gravity Well</button>
             </div>
+          </>
+        );
+      })()}
+      {settingsWellId && (() => {
+        const well = wells.find((item) => item.id === settingsWellId);
+        if (!well) return null;
+        const occupants = parked.get(well.id) ?? [];
+        return (
+          <>
+            <button className="wellSettingsScrim" aria-label="Close Gravity Well settings" onClick={() => setSettingsWellId(null)} />
+            <aside className="wellSettings glass-heavy" role="dialog" aria-modal="true" aria-label={`${well.name} settings`}>
+              <header className="wellSettings__header">
+                <span className={`wellSettings__preview is-${well.kind}`} style={{ "--well-color": colorForWell(well) } as CSSProperties}><i /><b /></span>
+                <span><small>GRAVITY WELL</small><input aria-label="Gravity Well name" value={well.name} maxLength={64} onChange={(event) => updateWell(well.id, { name: event.target.value })} /><em>{occupants.length}/{CAPACITY[well.kind]} windows · Display {well.monitor + 1}</em></span>
+                <button onClick={() => setSettingsWellId(null)} aria-label="Close settings">×</button>
+              </header>
+
+              <div className="wellSettings__actions">
+                <button disabled={!activeWindow || occupants.length >= CAPACITY[well.kind]} onClick={() => void storeActive(well)}><strong>Store active</strong><small>{activeWindow?.title ?? "No active window"}</small></button>
+                <button disabled={!occupants.length} onClick={() => void releaseEvery(well)}><strong>Release all</strong><small>Return to desktop</small></button>
+                <button disabled={!occupants.length} onClick={() => void releaseEvery(well, true)}><strong>Send to Orbit</strong><small>Minimize safely</small></button>
+                <button onClick={() => createWell(true)}><strong>New Well</strong><small>Create another</small></button>
+              </div>
+
+              <section className="wellSettings__section">
+                <div className="wellSettings__sectionTitle"><strong>Stored windows</strong><span>{occupants.length ? "Drag a face out, or use the controls below" : "Drop any application window onto this Well"}</span></div>
+                <div className="wellSettings__windows">
+                  {occupants.map((window) => {
+                    const app = state.apps.find((item) => item.id === window.appId);
+                    return <article key={window.id}>
+                      <AppTile name={app?.name ?? window.title} hue={app?.hue ?? 222} size={34} appId={app?.id} />
+                      <span><strong>{window.title}</strong><small>{app?.name ?? window.appId}</small></span>
+                      <button onClick={() => void actions.releaseWindow(window.id).then(() => actions.focusWindow(window.id)).catch((error) => setMessage(String(error)))}>Open</button>
+                      <button onClick={() => void actions.releaseWindow(window.id).then(() => actions.minimizeWindow(window.id)).catch((error) => setMessage(String(error)))}>Orbit</button>
+                    </article>;
+                  })}
+                  {!occupants.length && <div className="wellSettings__empty"><b>0</b><span>This Well is ready to hold {CAPACITY[well.kind]} application windows.</span></div>}
+                </div>
+              </section>
+
+              <section className="wellSettings__section">
+                <div className="wellSettings__sectionTitle"><strong>Geometry</strong><span>Shape controls storage capacity</span></div>
+                <div className="wellSettings__kinds">
+                  {KINDS.map((kind) => <button key={kind} className={well.kind === kind ? "is-selected" : ""} onClick={() => updateWell(well.id, { kind })}><i className={`is-${kind}`} /><span>{kind}</span><small>{CAPACITY[kind]}</small></button>)}
+                </div>
+              </section>
+
+              <section className="wellSettings__section wellSettings__appearance">
+                <div className="wellSettings__sectionTitle"><strong>Appearance & motion</strong><span>Original Gravity materials</span></div>
+                <div className="wellSettings__swatches">
+                  {COLORS.filter((color) => color !== "custom").map((color) => <button key={color} className={well.color === color ? "is-selected" : ""} style={{ "--swatch": colorForWell({ color }) } as CSSProperties} aria-label={color} onClick={() => updateWell(well.id, { color })} />)}
+                  <label className={well.color === "custom" ? "is-selected" : ""} title="Custom color"><input type="color" value={well.customColor ?? "#42e6a4"} onChange={(event) => updateWell(well.id, { color: "custom", customColor: event.target.value })} /><span style={{ "--swatch": well.customColor ?? "#42e6a4" } as CSSProperties}>+</span></label>
+                </div>
+                <label><span>Size <b>{Math.round(well.scale * 100)}%</b></span><input type="range" min="0.7" max="1.5" step="0.05" value={well.scale} onChange={(event) => updateWell(well.id, { scale: Number(event.target.value) })} /></label>
+                <label><span>Rotation <b>{Math.round(well.rotation)}°</b></span><input type="range" min="0" max="360" step="6" value={well.rotation} onChange={(event) => updateWell(well.id, { rotation: Number(event.target.value) })} /></label>
+              </section>
+
+              <footer className="wellSettings__footer"><button onClick={() => createWell(true)}>Create new Gravity Well</button><button className="is-danger" onClick={() => void removeWell(well)}>Release contents and remove</button></footer>
+            </aside>
           </>
         );
       })()}

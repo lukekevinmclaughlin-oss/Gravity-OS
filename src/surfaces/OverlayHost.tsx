@@ -5,6 +5,7 @@ import { Constellation } from "./Constellation";
 import { WindowStudio } from "./WindowStudio";
 import { AppLibrary } from "./AppLibrary";
 import { AboutGravity } from "./AboutGravity";
+import { CustomizationCenter } from "./CustomizationCenter";
 import { hideOverlaySelf, type OverlaySurface } from "../lib/win";
 import { useShell } from "../shell/context";
 
@@ -65,6 +66,7 @@ export function OverlayHost() {
       <Constellation open={surface === "constellation"} onClose={close} />
       <WindowStudio open={surface === "window-studio"} onClose={close} />
       <AppLibrary open={surface === "app-library"} onClose={close} />
+      <CustomizationCenter open={surface === "customization"} onClose={close} />
       <AboutGravity open={surface === "about"} onClose={close} />
     </>
   );

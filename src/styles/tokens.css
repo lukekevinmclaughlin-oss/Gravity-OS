@@ -1,6 +1,5 @@
 /* ============================================================
-   Gravity OS design tokens — v2 "macOS-parity" system
-   (docs/MACOS-PARITY-SPEC.md)
+   Gravity OS design tokens — frontier material system
 
    Grammar: neutral chrome, one grotesque at 13px, real materials.
    Ornament: Gravity's own — accent set, lensing edge, Deep Field.
@@ -9,7 +8,7 @@
 
 :root {
   /* Type — all UI is Inter at 13px; Space Grotesk is brand-only. */
-  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ui: "Inter", system-ui, "Segoe UI", sans-serif;
   --font-brand: "Space Grotesk", var(--font-ui);
   --font-display: var(--font-ui); /* v1 alias: display type is now UI type */
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
@@ -21,6 +20,7 @@
   /* Neutral chrome (color lives in the wallpaper, not the panels) */
   --bg-deep: #101014;
   --bg-nebula: #16161b;
+  --deepfield: #080d18;
   --ink: #f2f2f5;
   --ink-dim: rgba(242, 242, 245, 0.62);
   --ink-faint: rgba(242, 242, 245, 0.38);
@@ -81,6 +81,7 @@
 :root[data-theme="daybreak"] {
   --bg-deep: #eceef2;
   --bg-nebula: #e2e5ec;
+  --deepfield: #edf3f6;
   --ink: #1d1d21;
   --ink-dim: rgba(29, 29, 33, 0.62);
   --ink-faint: rgba(29, 29, 33, 0.4);

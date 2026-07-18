@@ -1,9 +1,9 @@
 import { isTauri } from "../shell/tauri";
 
-/** Cross-window control for the multi-window Windows shell. On macOS dev
- *  (no Tauri) these are no-ops and the composed Stage handles overlays. */
+/** Cross-window control for the multi-window shell. Without Tauri these are
+ * no-ops and the composed development Stage handles overlays. */
 
-export type OverlaySurface = "singularity" | "core" | "constellation" | "window-studio" | "app-library" | "about";
+export type OverlaySurface = "singularity" | "core" | "constellation" | "window-studio" | "app-library" | "customization" | "about";
 
 let lastOverlay: OverlaySurface | null = null;
 
@@ -69,35 +69,71 @@ export async function growOrbitWindow(open: boolean): Promise<void> {
 /** Keep Orbit's native hit-test region close to the visible shelf. AppBar
  * reservation still spans the display, but transparent side margins no
  * longer intercept clicks in foreign applications. */
-export async function fitOrbitWindow(appCount: number): Promise<void> {
+export async function fitOrbitWindow(appCount: number, baseSize = 48, magnification = 2): Promise<void> {
   if (!isTauri() || orbitExpanded) return;
   if (new URLSearchParams(window.location.search).get("surface") !== "orbit") return;
   const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("fit_orbit_window", { appCount });
+  await invoke("fit_orbit_window", { appCount, baseSize, magnification });
 }
 
 /** Size the standalone Pulse surface to its visible notifications and hide
  * it completely when there is nothing to show, avoiding transparent hit
  * regions over application content. */
-export async function fitPulseWindow(noteCount: number): Promise<void> {
+let pulseFitGeneration = 0;
+let pulseFitQueue: Promise<void> = Promise.resolve();
+
+export function fitPulseWindow(noteCount: number): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  if (new URLSearchParams(window.location.search).get("surface") !== "pulse") return Promise.resolve();
+  const generation = ++pulseFitGeneration;
+  const operation = pulseFitQueue.catch(() => undefined).then(async () => {
+    // Notification discovery can publish several list sizes in one frame.
+    // Serialize them and discard stale requests so an older, shorter stack
+    // cannot resize Pulse after the current stack has already rendered.
+    if (generation !== pulseFitGeneration) return;
+    const { getCurrentWindow, currentMonitor, PhysicalPosition, PhysicalSize } =
+      await import("@tauri-apps/api/window");
+    if (generation !== pulseFitGeneration) return;
+    const win = getCurrentWindow();
+    if (noteCount === 0) {
+      await win.hide();
+      return;
+    }
+    const monitor = await currentMonitor();
+    if (!monitor || generation !== pulseFitGeneration) return;
+    const scale = monitor.scaleFactor;
+    const width = Math.round(370 * scale);
+    const height = Math.round(Math.min(620, 24 + noteCount * 112) * scale);
+    // Keep transient notifications below the title-control band. The native
+    // hit region is tightened separately, so transparent pixels remain truly
+    // pass-through even while Pulse is visible.
+    const topInset = Math.round((HORIZON_CLOSED_H + 50) * scale);
+    await win.setSize(new PhysicalSize(width, height));
+    if (generation !== pulseFitGeneration) return;
+    await win.setPosition(new PhysicalPosition(
+      monitor.position.x + monitor.size.width - width - Math.round(8 * scale),
+      monitor.position.y + topInset
+    ));
+    if (generation === pulseFitGeneration) await win.show();
+  });
+  pulseFitQueue = operation;
+  return operation;
+}
+
+export interface PulseHitRectangle {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export async function setPulseInteractionRegion(rectangles: PulseHitRectangle[]): Promise<void> {
   if (!isTauri()) return;
   if (new URLSearchParams(window.location.search).get("surface") !== "pulse") return;
-  const { getCurrentWindow, currentMonitor, PhysicalPosition, PhysicalSize } =
-    await import("@tauri-apps/api/window");
-  const win = getCurrentWindow();
-  if (noteCount === 0) {
-    await win.hide();
-    return;
-  }
-  const monitor = await currentMonitor();
-  if (!monitor) return;
-  const scale = monitor.scaleFactor;
-  const width = Math.round(370 * scale);
-  const height = Math.round(Math.min(620, 54 + noteCount * 112) * scale);
-  await win.setSize(new PhysicalSize(width, height));
-  await win.setPosition(new PhysicalPosition(
-    monitor.position.x + monitor.size.width - width - Math.round(8 * scale),
-    monitor.position.y
-  ));
-  await win.show();
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_pulse_interaction_region", {
+    rectangles,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+  });
 }

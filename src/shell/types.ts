@@ -1,5 +1,5 @@
-/** Shared shape of the shell world — identical for the macOS dev mock and the
- *  Windows (Tauri/Win32) runtime, so every surface is backend-agnostic. */
+/** Shared shape of the shell world — identical for the development mock and
+ * the Windows (Tauri/Win32) runtime, so every surface is backend-agnostic. */
 
 export interface AppInfo {
   id: string;
@@ -136,7 +136,7 @@ export type PowerKind = "sleep" | "restart" | "shutdown" | "lock";
 /** Clipboard verbs synthesized into the focused app (spec §3). */
 export type EditKind = "cut" | "copy" | "paste" | "select-all" | "undo" | "redo";
 
-/** Native window operations ported from Gravity's macOS geometry engine. */
+/** Native window operations provided by Gravity's geometry engine. */
 export type WindowAction =
   | "left-half" | "right-half" | "top-half" | "bottom-half"
   | "top-left" | "top-right" | "bottom-left" | "bottom-right"
@@ -155,14 +155,31 @@ export interface ShellActions {
   minimizeWindow(id: string): Promise<void>;
   toggleMaximizeWindow(id: string): Promise<void>;
   closeWindow(id: string): Promise<void>;
+  /** Control the last real foreground application even after Horizon receives focus. */
+  activeWindowControl(kind: "close" | "minimize" | "zoom"): Promise<void>;
   windowAction(action: WindowAction): Promise<void>;
   windowActionFor(windowId: string, action: WindowAction): Promise<void>;
   applyGridRegion(windowId: string, x: number, y: number, width: number, height: number): Promise<void>;
+  applyGridRegionOnMonitor(windowId: string, monitor: number, x: number, y: number, width: number, height: number): Promise<void>;
   warpWindow(windowId: string, operation: WarpOperation): Promise<void>;
   parkWindow(windowId: string, wellId: string): Promise<void>;
   releaseWindow(windowId: string): Promise<void>;
   releaseAllParkedWindows(): Promise<void>;
+  /** Track a minimized-window drag beyond Orbit's native WebView boundary. */
+  beginDockWindowDrag(windowId: string): Promise<void>;
+  /** Store an existing app window, or launch the app and store its first window. */
+  storeAppInWell(appId: string, wellId: string): Promise<void>;
+  /** Track a Dock/Library app drag and store it when released over a Well. */
+  beginDockAppDrag(appId: string): Promise<void>;
   registerDesktopWells(targets: DesktopWellTarget[]): Promise<void>;
+  /** Expand the native Wells hit region while a quick menu or settings panel is open. */
+  setWellSurfaceExpanded(expanded: boolean): Promise<void>;
+  /** Publish Orbit's exact rendered Trash hit box in local CSS pixels. */
+  registerDesktopTrashTarget(target: DesktopTrashTarget | null): Promise<void>;
+  /** Hit-test the current pointer against every native Orbit Trash target. */
+  isDesktopTrashTarget(clientX: number, clientY: number): Promise<boolean>;
+  /** Resolve the pointer to a physical monitor and normalized display point. */
+  desktopPointerLocation(clientX: number, clientY: number): Promise<DesktopPointerLocation>;
   /** Resolve only after Windows has accepted the launch request. */
   launchApp(appId: string): Promise<LaunchResult>;
   /** Open one or more dropped files with a Dock application. */
@@ -208,6 +225,27 @@ export interface DesktopWellTarget {
   x: number;
   y: number;
   radius: number;
+  capacity: number;
+  occupied: number;
+}
+
+export interface DesktopTrashTarget {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  dockX: number;
+  dockY: number;
+  dockWidth: number;
+  dockHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}
+
+export interface DesktopPointerLocation {
+  monitor: number;
+  x: number;
+  y: number;
 }
 
 export type WarpOperation =

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
+import { useDesktopWells, WELL_CAPACITY } from "../lib/wells";
 import "./constellation.css";
 
 /** Constellation — the exposé. Windows cluster by app with faint connecting
@@ -14,9 +15,11 @@ export interface ConstellationProps {
 
 export function Constellation({ open, onClose }: ConstellationProps) {
   const { state, actions } = useShell();
+  const wells = useDesktopWells();
   const [draggedWindow, setDraggedWindow] = useState<string | null>(null);
   const [dropOrbit, setDropOrbit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [windowMenu, setWindowMenu] = useState<{ windowId: string; x: number; y: number } | null>(null);
   const pointerDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
   const suppressOpen = useRef<string | null>(null);
   if (!open) return null;
@@ -149,6 +152,11 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                       className={`constel__card glass lens ${w.minimized ? "is-min" : ""} ${w.maximized ? "is-max" : ""} ${draggedWindow === w.id ? "is-dragging" : ""}`}
                       style={{ transform: `rotate(${fan}deg) translateY(${Math.abs(i - mid) * 5}px)` }}
                       onMouseDown={(event) => beginWindowMouseDrag(event, w.id)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setWindowMenu({ windowId: w.id, x: Math.min(event.clientX, window.innerWidth - 268), y: Math.min(event.clientY, window.innerHeight - 360) });
+                      }}
                       onPointerDown={(event) => beginWindowDrag(event, w.id)}
                       onPointerMove={moveWindowDrag}
                       onPointerUp={finishWindowDrag}
@@ -237,6 +245,25 @@ export function Constellation({ open, onClose }: ConstellationProps) {
         })}
         {wins.length === 0 && <div className="constel__empty">Nothing in this orbit yet</div>}
       </div>
+      {windowMenu && (() => {
+        const window = state.windows.find((candidate) => candidate.id === windowMenu.windowId);
+        if (!window) return null;
+        return <><button className="constelWindowMenuDismiss" aria-label="Close window menu" onClick={() => setWindowMenu(null)} /><div className="constelWindowMenu glass-heavy" role="menu" style={{ left: windowMenu.x, top: windowMenu.y }}>
+          <strong>{window.title}</strong>
+          <button role="menuitem" onClick={() => { setWindowMenu(null); void actions.focusWindow(window.id).then(onClose).catch((reason) => setError(String(reason))); }}>Open window</button>
+          <div>Add to Gravity Well</div>
+          {wells.map((well) => {
+            const occupied = state.windows.filter((candidate) => candidate.parkedWellId === well.id).length;
+            const full = occupied >= WELL_CAPACITY[well.kind];
+            return <button key={well.id} role="menuitem" disabled={full} onClick={() => {
+              setWindowMenu(null);
+              void actions.parkWindow(window.id, well.id).catch((reason) => setError(String(reason)));
+            }}><span>{well.name}</span><small>{full ? "Full" : `${occupied}/${WELL_CAPACITY[well.kind]}`}</small></button>;
+          })}
+          <button role="menuitem" onClick={() => { setWindowMenu(null); void actions.minimizeWindow(window.id).catch((reason) => setError(String(reason))); }}>Minimize to Orbit</button>
+          <button className="is-danger" role="menuitem" onClick={() => { setWindowMenu(null); void actions.closeWindow(window.id).catch((reason) => setError(String(reason))); }}>Close window</button>
+        </div></>;
+      })()}
       {error && <button className="constel__error glass-heavy" role="alert" onClick={() => setError(null)}>{error}</button>}
     </div>
   );

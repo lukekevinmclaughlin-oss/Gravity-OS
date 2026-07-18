@@ -55,6 +55,20 @@ describe("MockShell interaction contract", () => {
     expect(shell.snapshot().windows.find((window) => window.id === target.id)?.maximized).toBe(false);
   });
 
+  it("routes Horizon controls through the active-window contract", async () => {
+    const shell = new MockShell();
+    const target = shell.snapshot().windows.find((window) => window.focused)!;
+
+    await shell.actions.activeWindowControl("zoom");
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)?.maximized).toBe(true);
+    await shell.actions.activeWindowControl("minimize");
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)?.minimized).toBe(true);
+
+    const next = shell.snapshot().windows.find((window) => !window.minimized)!;
+    await shell.actions.activeWindowControl("close");
+    expect(shell.snapshot().windows.some((window) => window.id === next.id)).toBe(false);
+  });
+
   it("opens dropped files with the selected Orbit application", async () => {
     const shell = new MockShell();
     const before = shell.snapshot().windows.length;
@@ -118,6 +132,15 @@ describe("MockShell interaction contract", () => {
     });
   });
 
+  it("launches an inactive application directly into a Gravity Well", async () => {
+    const shell = new MockShell();
+    expect(shell.snapshot().windows.some((window) => window.appId === "calculator")).toBe(false);
+    await shell.actions.storeAppInWell("calculator", "well-launch-target");
+    await vi.advanceTimersByTimeAsync(750);
+    const calculator = shell.snapshot().windows.find((window) => window.appId === "calculator");
+    expect(calculator).toMatchObject({ parkedWellId: "well-launch-target", focused: false });
+  });
+
   it("persists Gravity parity preferences in the interaction contract", async () => {
     const shell = new MockShell();
     const scene = await shell.actions.captureScene("Docked desk");
@@ -131,9 +154,9 @@ describe("MockShell interaction contract", () => {
 
   it("remaps, clears, conflict-checks, and resets global shortcuts", async () => {
     const shell = new MockShell();
-    await shell.actions.setShortcut("left-half", "ctrl+alt+q");
-    expect(shell.snapshot().windowing.shortcuts["left-half"]).toBe("ctrl+alt+q");
-    await expect(shell.actions.setShortcut("right-half", "ctrl+alt+q")).rejects.toThrow("already assigned");
+    await shell.actions.setShortcut("left-half", "ctrl+alt+shift+q");
+    expect(shell.snapshot().windowing.shortcuts["left-half"]).toBe("ctrl+alt+shift+q");
+    await expect(shell.actions.setShortcut("right-half", "ctrl+alt+shift+q")).rejects.toThrow("already assigned");
     await expect(shell.actions.setShortcut("right-half", "ctrl+alt+g")).rejects.toThrow("reserved");
     await shell.actions.setShortcut("left-half", null);
     expect(shell.snapshot().windowing.shortcuts["left-half"]).toBeUndefined();

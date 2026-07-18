@@ -1,4 +1,4 @@
-//! Mock backend so the project builds and type-checks off-Windows (macOS dev).
+//! Mock backend so the project builds and type-checks without native Windows APIs.
 //! Mirrors the TypeScript `MockShell` closely enough to smoke-test IPC.
 
 use parking_lot::Mutex;
@@ -137,6 +137,24 @@ impl ShellPlatform for MockPlatform {
         }
         Ok(())
     }
+    fn active_window_control(&self, kind: &str) -> Result<(), String> {
+        let target = {
+            let state = self.state.lock();
+            state
+                .windows
+                .iter()
+                .find(|window| window.focused && !window.minimized)
+                .or_else(|| state.windows.iter().find(|window| !window.minimized))
+                .map(|window| window.id.clone())
+        }
+        .ok_or_else(|| "There is no active application window to control".to_string())?;
+        match kind {
+            "close" => self.close_window(&target),
+            "minimize" => self.minimize_window(&target),
+            "zoom" => self.toggle_maximize_window(&target),
+            _ => Err("Unknown active-window control".into()),
+        }
+    }
     fn window_action(&self, action: &str) -> Result<(), String> {
         let focused = self
             .state
@@ -182,6 +200,17 @@ impl ShellPlatform for MockPlatform {
             return Err("Grid regions must stay inside the visible display".into());
         }
         self.focus_window(window_id)
+    }
+    fn apply_grid_region_on_monitor(
+        &self,
+        window_id: &str,
+        _monitor: usize,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String> {
+        self.apply_grid_region(window_id, x, y, width, height)
     }
     fn warp_window(&self, window_id: &str, operation: &str) -> Result<(), String> {
         if !matches!(

@@ -8,7 +8,7 @@ mod settings;
 mod shell;
 
 use commands::AppState;
-use shell::{ShellMode, ShellTransitionResult};
+use shell::{AppearanceMode, ResolvedAppearance, ShellMode, ShellTransitionResult};
 use tauri::Manager;
 
 #[cfg(windows)]
@@ -88,6 +88,30 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
         deepfield.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;
         if let Ok(hwnd) = deepfield.hwnd() {
             platform::shell_control::attach_to_desktop(hwnd.0 as isize);
+        }
+
+        // Wells live in a separate region-shaped child above Explorer's icon
+        // view. The wallpaper remains behind icons, while only the visible
+        // Well controls participate in native mouse hit testing.
+        let wells = build_surface(
+            app,
+            &format!("wells-{index}"),
+            &surface_url("wells"),
+            false,
+            true,
+            true,
+        )?;
+        wells.set_size(tauri::PhysicalSize::new(size.width, size.height))?;
+        wells.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;
+        if let Ok(hwnd) = wells.hwnd() {
+            platform::shell_control::configure_well_interaction_layer(hwnd.0 as isize);
+            let _ = platform::shell_control::set_well_interaction_region(
+                hwnd.0 as isize,
+                size.width as i32,
+                size.height as i32,
+                &[],
+                false,
+            );
         }
 
         let horizon = build_surface(
@@ -207,6 +231,7 @@ fn configured_shortcut_action(
 fn dispatch_configured_shortcut(app: &tauri::AppHandle, action: &str) {
     use tauri::Emitter;
     match action {
+        "open-window-studio" => open_overlay_surface(app, "window-studio"),
         "grid-picker" | "warp-mode" => {
             open_overlay_surface(app, "window-studio");
             let _ = app.emit(
@@ -245,6 +270,84 @@ fn dispatch_configured_shortcut(app: &tauri::AppHandle, action: &str) {
             let state = app.state::<AppState>();
             let _ = state.platform.release_all_parked_windows();
             let _ = app.emit("gravity://state-changed", ());
+        }
+        "new-well" => {
+            let _ = app.emit(
+                "gravity://well-command",
+                serde_json::json!({ "command": "add-well" }),
+            );
+        }
+        "minimize-active" | "close-active" => {
+            let state = app.state::<AppState>();
+            let snapshot = state.platform.snapshot();
+            let target = snapshot
+                .windows
+                .iter()
+                .find(|window| window.focused && window.parked_well_id.is_none())
+                .or_else(|| {
+                    snapshot
+                        .windows
+                        .iter()
+                        .find(|window| !window.minimized && window.parked_well_id.is_none())
+                });
+            if let Some(window) = target {
+                let _ = if action == "minimize-active" {
+                    state.platform.minimize_window(&window.id)
+                } else {
+                    state.platform.close_window(&window.id)
+                };
+                let _ = app.emit("gravity://state-changed", ());
+            }
+        }
+        "toggle-appearance" => {
+            let state = app.state::<AppState>();
+            let mut snapshot = state.platform.snapshot();
+            state.settings.apply_to_state(&mut snapshot);
+            let next = if matches!(snapshot.appearance.resolved, ResolvedAppearance::Light) {
+                AppearanceMode::Dark
+            } else {
+                AppearanceMode::Light
+            };
+            let _ = state.settings.set_appearance(next);
+            let _ = app.emit("gravity://state-changed", ());
+        }
+        action if action.starts_with("store-well-") => {
+            let Some(index) = action
+                .strip_prefix("store-well-")
+                .and_then(|value| value.parse::<usize>().ok())
+                .and_then(|value| value.checked_sub(1))
+            else {
+                return;
+            };
+            let state = app.state::<AppState>();
+            let targets = platform::snap::well_targets_snapshot();
+            let Some(well) = targets.get(index) else {
+                return;
+            };
+            let snapshot = state.platform.snapshot();
+            let occupied = snapshot
+                .windows
+                .iter()
+                .filter(|window| window.parked_well_id.as_deref() == Some(well.id.as_str()))
+                .count();
+            let target = snapshot
+                .windows
+                .iter()
+                .find(|window| {
+                    window.focused && !window.minimized && window.parked_well_id.is_none()
+                })
+                .or_else(|| {
+                    snapshot
+                        .windows
+                        .iter()
+                        .find(|window| !window.minimized && window.parked_well_id.is_none())
+                });
+            if occupied < well.capacity {
+                if let Some(window) = target {
+                    let _ = state.platform.park_window(&window.id, &well.id);
+                    let _ = app.emit("gravity://state-changed", ());
+                }
+            }
         }
         action => {
             let state = app.state::<AppState>();
@@ -345,7 +448,7 @@ pub(crate) fn set_shell_active_impl(
         state.platform.engage_shell();
     }
     for (label, window) in app.webview_windows() {
-        if ["deepfield-", "horizon-", "orbit-"]
+        if ["deepfield-", "wells-", "horizon-", "orbit-"]
             .iter()
             .any(|prefix| label.starts_with(prefix))
         {
@@ -464,7 +567,7 @@ pub fn run() {
 
     // Global hotkeys (spec §12): Alt+Space → Singularity (Spotlight muscle
     // memory, PowerToys-Run precedent), Ctrl+Alt+Up → Constellation
-    // (macOS Ctrl+Up). Registered core-side; no capability surface.
+    // F3 opens the window overview. Registered core-side; no capability surface.
     #[cfg(windows)]
     let builder = {
         use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
@@ -507,14 +610,24 @@ pub fn run() {
             commands::minimize_window,
             commands::toggle_maximize_window,
             commands::close_window,
+            commands::active_window_control,
             commands::window_action,
             commands::window_action_for,
             commands::apply_grid_region,
+            commands::apply_grid_region_on_monitor,
             commands::warp_window,
             commands::park_window,
             commands::release_window,
             commands::release_all_parked_windows,
             commands::register_desktop_wells,
+            commands::set_well_surface_expanded,
+            commands::set_pulse_interaction_region,
+            commands::register_desktop_trash_target,
+            commands::is_desktop_trash_target,
+            commands::desktop_pointer_location,
+            commands::begin_dock_window_drag,
+            commands::store_app_in_well,
+            commands::begin_dock_app_drag,
             commands::launch_app,
             commands::launch_app_with_files,
             commands::set_app_pinned,

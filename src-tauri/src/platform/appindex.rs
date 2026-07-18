@@ -308,10 +308,7 @@ pub fn shell_open(target: &str) -> Result<(), String> {
 /// Add packaged/UWP applications exposed by the Windows AppsFolder. Modern
 /// Store applications do not necessarily have `.lnk` files in the Start Menu.
 fn scan_packaged_apps(out: &mut Vec<AppInfo>) {
-    let packaged = std::thread::spawn(enumerate_packaged_apps_sta)
-        .join()
-        .unwrap_or_default();
-    for (name, target) in packaged {
+    for (name, target) in apps_folder_entries().iter().cloned() {
         let low = name.to_lowercase();
         if low.contains("uninstall") || low.contains("help") {
             continue;
@@ -326,6 +323,15 @@ fn scan_packaged_apps(out: &mut Vec<AppInfo>) {
         }
         out.push(app);
     }
+}
+
+fn apps_folder_entries() -> &'static Vec<(String, String)> {
+    static ENTRIES: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    ENTRIES.get_or_init(|| {
+        std::thread::spawn(enumerate_packaged_apps_sta)
+            .join()
+            .unwrap_or_default()
+    })
 }
 
 fn enumerate_packaged_apps_sta() -> Vec<(String, String)> {
@@ -417,22 +423,58 @@ pub fn icon_rgba(app_id: &str) -> Option<IconData> {
 }
 
 fn icon_rgba_sta(app_id: &str) -> Option<IconData> {
-    let source = if let Some(hint) = builtin_icon_hint(app_id) {
-        hint.to_string()
-    } else {
-        let app = index().iter().find(|a| a.id == app_id);
-        #[cfg(test)]
-        eprintln!("  [sta] lookup {app_id:?} -> {:?}", app.map(|a| &a.exe));
-        let app = app?;
-        let src = resolve_icon_source(app.exe.as_deref()?);
-        #[cfg(test)]
-        eprintln!("  [sta] source -> {src:?}");
-        src?
-    };
-    let raw = extract_icon(&source).or_else(|| extract_icon_imagelist(&source));
+    let mut sources = Vec::new();
+    if let Some(hint) = builtin_icon_hint(app_id) {
+        sources.push(hint.to_string());
+    }
+    if let Some(command) = index()
+        .iter()
+        .find(|app| app.id == app_id)
+        .and_then(|app| app.exe.as_deref())
+    {
+        if let Some(source) = resolve_icon_source(command) {
+            if Path::new(&source)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+            {
+                sources.extend(shortcut_icon_sources(&source));
+            }
+            sources.push(source);
+        }
+    }
+    // AppsFolder exposes authoritative icon parsing names for both packaged
+    // apps and registered desktop shortcuts. This recovers modern apps such
+    // as ChatGPT and Claude when their Start Menu .lnk has no extractable
+    // bitmap or launches through an update shim.
+    let wanted = app_id.strip_suffix("-app").unwrap_or(app_id);
+    if let Some((_, target)) = apps_folder_entries()
+        .iter()
+        .find(|(name, _)| slug(name) == wanted || slug(name) == app_id)
+    {
+        // SIGDN_DESKTOPABSOLUTEPARSING commonly returns a bare AUMID. Shell
+        // image factories require the AppsFolder parsing prefix to bind that
+        // identity to the package's visual-assets manifest.
+        let registered = [format!(r"shell:AppsFolder\{target}"), target.clone()];
+        if target.contains('!') {
+            // Packaged app: AppsFolder owns the authoritative visual assets.
+            let mut preferred = registered.to_vec();
+            preferred.append(&mut sources);
+            sources = preferred;
+        } else {
+            // Registered desktop/Squirrel app: AppsFolder often returns the
+            // generic window glyph. Prefer the resolved Start Menu shortcut
+            // or executable, then retain AppsFolder as a fallback.
+            sources.extend(registered);
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    sources.retain(|source| seen.insert(source.clone()));
+    let raw = sources
+        .iter()
+        .find_map(|source| extract_icon(source).or_else(|| extract_icon_imagelist(source)));
     #[cfg(test)]
     eprintln!(
-        "  [sta] raw -> {:?}",
+        "  [sta] sources {sources:?}; raw -> {:?}",
         raw.as_ref().map(|d| (d.width, d.height))
     );
     raw.map(crop_to_content)
@@ -456,6 +498,103 @@ fn resolve_icon_source(cmd: &str) -> Option<String> {
         return None;
     }
     app_paths_lookup(cmd).or_else(|| search_path(cmd))
+}
+
+/// Resolve the explicit icon and executable behind a Start Menu shortcut.
+/// Explorer can return a generic document glyph for a valid `.lnk` whose own
+/// icon location is blank (notably Squirrel apps); the target executable still
+/// carries the vendor's real icon resources.
+fn shortcut_icon_sources(path: &str) -> Vec<String> {
+    use windows::Win32::Storage::FileSystem::WIN32_FIND_DATAW;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED, STGM_READ,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink, SLGP_RAWPATH, SLR_NO_UI};
+
+    unsafe {
+        let mut sources = shortcut_property_target(path)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let _initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        #[cfg(test)]
+        eprintln!("shortcut CoInitializeEx -> {_initialized:?}");
+        let link: IShellLinkW = match CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER) {
+            Ok(link) => link,
+            Err(_error) => {
+                #[cfg(test)]
+                eprintln!("shortcut CoCreateInstance -> {_error:?}");
+                return sources;
+            }
+        };
+        let persist = match link.cast::<IPersistFile>() {
+            Ok(persist) => persist,
+            Err(_error) => {
+                #[cfg(test)]
+                eprintln!("shortcut IPersistFile cast -> {_error:?}");
+                return sources;
+            }
+        };
+        let shortcut = wide(path);
+        if let Err(_error) = persist.Load(PCWSTR(shortcut.as_ptr()), STGM_READ) {
+            #[cfg(test)]
+            eprintln!("shortcut Load({path}) -> {_error:?}");
+            return sources;
+        }
+
+        let read = |buffer: &[u16]| {
+            let length = buffer
+                .iter()
+                .position(|value| *value == 0)
+                .unwrap_or(buffer.len());
+            (length > 0).then(|| String::from_utf16_lossy(&buffer[..length]))
+        };
+        let mut icon_path = vec![0u16; MAX_PATH as usize];
+        let mut icon_index = 0i32;
+        if link
+            .GetIconLocation(&mut icon_path, &mut icon_index)
+            .is_ok()
+        {
+            if let Some(icon) = read(&icon_path).filter(|value| Path::new(value).exists()) {
+                sources.push(icon);
+            }
+        }
+
+        let mut target = vec![0u16; MAX_PATH as usize];
+        let mut find_data = WIN32_FIND_DATAW::default();
+        let _ = link.Resolve(HWND::default(), SLR_NO_UI.0 as u32);
+        let get_path = link.GetPath(&mut target, &mut find_data, SLGP_RAWPATH.0 as u32);
+        #[cfg(test)]
+        eprintln!("shortcut GetPath -> {get_path:?}");
+        if get_path.is_ok() {
+            if let Some(target) = read(&target).filter(|value| Path::new(value).exists()) {
+                sources.push(target);
+            }
+        }
+        sources
+    }
+}
+
+const PKEY_LINK_TARGET_PARSING_PATH: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0xb9b4b3fc_2b51_4a42_b5d8_324146afcf25),
+    pid: 2,
+};
+
+fn shortcut_property_target(path: &str) -> Option<String> {
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::PropertiesSystem::{
+        SHGetPropertyStoreFromParsingName, GPS_DEFAULT,
+    };
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let path = wide(path);
+        let store: IPropertyStore =
+            SHGetPropertyStoreFromParsingName(PCWSTR(path.as_ptr()), None, GPS_DEFAULT).ok()?;
+        let value = store.GetValue(&PKEY_LINK_TARGET_PARSING_PATH).ok()?;
+        let target = BSTR::try_from(&value).ok()?.to_string();
+        (!target.is_empty() && Path::new(&target).exists()).then_some(target)
+    }
 }
 
 /// Trim transparent margins (with a small pad) so 48px icons returned
@@ -847,5 +986,30 @@ mod tests {
             full.as_ref().map(|d| (d.width, d.height))
         );
         assert!(full.is_some(), "end-to-end icon extraction failed");
+    }
+
+    #[test]
+    #[ignore = "requires ChatGPT and Claude to be installed"]
+    fn probe_registered_modern_app_icons() {
+        let claude_link = std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join(r"Microsoft\Windows\Start Menu\Programs\Claude.lnk");
+        let claude_sources = shortcut_icon_sources(&claude_link.to_string_lossy());
+        eprintln!("Claude shortcut sources -> {claude_sources:?}");
+        assert!(
+            claude_sources.iter().any(|source| source
+                .to_ascii_lowercase()
+                .ends_with(r"anthropicclaude\claude.exe")),
+            "Claude shortcut target was not resolved"
+        );
+        for app_id in ["chatgpt", "claude"] {
+            let icon = icon_rgba(app_id);
+            eprintln!(
+                "icon_rgba({app_id}) -> {:?}",
+                icon.as_ref().map(|data| (data.width, data.height))
+            );
+            assert!(icon.is_some(), "{app_id} icon extraction failed");
+        }
     }
 }

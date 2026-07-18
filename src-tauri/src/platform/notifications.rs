@@ -29,7 +29,9 @@ pub fn read() -> Result<Vec<PulseNote>, String> {
         KnownNotificationBindings::ToastGeneric().map_err(|error| error.to_string())?;
     let mut result = Vec::new();
     let size = notifications.Size().map_err(|error| error.to_string())?;
-    for index in (0..size).rev().take(8) {
+    // Keep enough Action Center entries for per-application Dock badge counts;
+    // Pulse can still virtualize/present the same authoritative collection.
+    for index in (0..size).rev().take(64) {
         let item = notifications
             .GetAt(index)
             .map_err(|error| error.to_string())?;

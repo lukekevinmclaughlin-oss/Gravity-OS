@@ -12,7 +12,9 @@ import {
   WindowsIcon,
 } from "../components/Icons";
 import { growHorizonWindow } from "../lib/win";
+import { useDesktopWells, WELL_CAPACITY } from "../lib/wells";
 import type { WindowAction } from "../shell/types";
+import { formatShortcut } from "../lib/shortcuts";
 import "./horizon.css";
 
 export interface HorizonProps {
@@ -57,6 +59,7 @@ export function Horizon({
   onOpenAbout,
 }: HorizonProps) {
   const { state, actions } = useShell();
+  const wells = useDesktopWells();
   const [open, setOpen] = useState<string | null>(null);
   const [windowPalette, setWindowPalette] = useState(false);
   const [confirmPower, setConfirmPower] = useState<"restart" | "shutdown" | null>(null);
@@ -114,6 +117,14 @@ export function Horizon({
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
         items[event.key === "Home" ? 0 : items.length - 1].focus();
+      } else if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1) {
+        const needle = event.key.toLocaleLowerCase();
+        const ordered = [...items.slice(current + 1), ...items.slice(0, current + 1)];
+        const match = ordered.find((item) => item.innerText.trim().toLocaleLowerCase().startsWith(needle));
+        if (match) {
+          event.preventDefault();
+          match.focus();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -176,6 +187,11 @@ export function Horizon({
     await actions.windowActionFor(activeWin.id, action);
   };
 
+  const shortcutHint = (action: string) => {
+    const binding = state.windowing.shortcuts?.[action];
+    return binding ? formatShortcut(binding) : undefined;
+  };
+
   const switchToWindows = async () => {
     if (shellBusy) return;
     setShellBusy(true);
@@ -189,13 +205,8 @@ export function Horizon({
   const runWindowControl = (kind: "close" | "minimize" | "zoom") => {
     const target = targetRef.current ?? liveFocusedWin;
     if (!target) return;
-    const operation = kind === "close"
-      ? actions.closeWindow(target.id)
-      : kind === "minimize"
-        ? actions.minimizeWindow(target.id)
-        : actions.toggleMaximizeWindow(target.id);
     const label = kind === "close" ? "Close Window" : kind === "minimize" ? "Minimize" : target.maximized ? "Restore" : "Fill";
-    void execute(label, () => operation, false).catch(() => undefined);
+    void execute(label, () => actions.activeWindowControl(kind), false).catch(() => undefined);
   };
 
   const clearPaletteTimer = () => {
@@ -275,30 +286,41 @@ export function Horizon({
     {
       title: "Window",
       entries: [
-        { label: "Window Studio…", action: onOpenWindowStudio, announce: false },
+        { label: "Window Studio…", hint: shortcutHint("open-window-studio"), action: onOpenWindowStudio, announce: false },
         "sep",
-        { label: "Minimize", action: activeWin ? () => actions.minimizeWindow(activeWin.id) : undefined, disabled: !activeWin },
-        { label: "Undo Gravity Move", hint: "Ctrl Alt Z", action: activeWin ? manage("undo") : undefined, disabled: !activeWin },
-        { label: "Restore Original Size", action: activeWin ? manage("restore") : undefined, disabled: !activeWin },
+        { label: "Minimize", hint: shortcutHint("minimize-active"), action: activeWin ? () => actions.minimizeWindow(activeWin.id) : undefined, disabled: !activeWin },
+        ...wells.map<MenuEntry>((well, index) => {
+          const occupied = state.windows.filter((window) => window.parkedWellId === well.id).length;
+          const full = occupied >= WELL_CAPACITY[well.kind];
+          return {
+            label: `Add to ${well.name}`,
+            hint: full ? "Full" : shortcutHint(`store-well-${index + 1}`) ?? `${occupied}/${WELL_CAPACITY[well.kind]}`,
+            action: activeWin && !full ? () => actions.parkWindow(activeWin.id, well.id) : undefined,
+            disabled: !activeWin || full,
+          };
+        }),
+        ...(wells.length ? ["sep" as const] : []),
+        { label: "Undo Gravity Move", hint: shortcutHint("undo"), action: activeWin ? manage("undo") : undefined, disabled: !activeWin },
+        { label: "Restore Original Size", hint: shortcutHint("restore"), action: activeWin ? manage("restore") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Move to Left Half", hint: "Ctrl Alt ←", action: activeWin ? manage("left-half") : undefined, disabled: !activeWin },
-        { label: "Move to Right Half", hint: "Ctrl Alt →", action: activeWin ? manage("right-half") : undefined, disabled: !activeWin },
-        { label: "Move to Top Half", hint: "Ctrl Alt ↑", action: activeWin ? manage("top-half") : undefined, disabled: !activeWin },
-        { label: "Move to Bottom Half", hint: "Ctrl Alt ↓", action: activeWin ? manage("bottom-half") : undefined, disabled: !activeWin },
-        { label: activeWin?.maximized ? "Restore from Full Screen" : "Fill", hint: "Ctrl Alt Enter", action: activeWin ? () => actions.toggleMaximizeWindow(activeWin.id) : undefined, disabled: !activeWin },
-        { label: "Center", action: activeWin ? manage("center") : undefined, disabled: !activeWin },
+        { label: "Move to Left Half", hint: shortcutHint("left-half"), action: activeWin ? manage("left-half") : undefined, disabled: !activeWin },
+        { label: "Move to Right Half", hint: shortcutHint("right-half"), action: activeWin ? manage("right-half") : undefined, disabled: !activeWin },
+        { label: "Move to Top Half", hint: shortcutHint("top-half"), action: activeWin ? manage("top-half") : undefined, disabled: !activeWin },
+        { label: "Move to Bottom Half", hint: shortcutHint("bottom-half"), action: activeWin ? manage("bottom-half") : undefined, disabled: !activeWin },
+        { label: activeWin?.maximized ? "Restore from Full Screen" : "Fill", hint: shortcutHint("maximize"), action: activeWin ? () => actions.toggleMaximizeWindow(activeWin.id) : undefined, disabled: !activeWin },
+        { label: "Center", hint: shortcutHint("center"), action: activeWin ? manage("center") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Previous Display", hint: "Ctrl Alt Shift ←", action: activeWin ? manage("previous-display") : undefined, disabled: !activeWin },
-        { label: "Next Display", hint: "Ctrl Alt Shift →", action: activeWin ? manage("next-display") : undefined, disabled: !activeWin },
+        { label: "Previous Display", hint: shortcutHint("previous-display"), action: activeWin ? manage("previous-display") : undefined, disabled: !activeWin },
+        { label: "Next Display", hint: shortcutHint("next-display"), action: activeWin ? manage("next-display") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Pair with Previous Window", action: activeWin ? manage("pair-previous") : undefined, disabled: !activeWin },
-        { label: "Tile This Application", action: activeWin ? manage("tile-app") : undefined, disabled: !activeWin },
-        { label: "Arrange This Display", action: activeWin ? manage("arrange-display") : undefined, disabled: !activeWin },
-        { label: "Cascade This Display", action: activeWin ? manage("cascade") : undefined, disabled: !activeWin },
-        { label: "Gather All Windows Here", action: activeWin ? manage("gather-all") : undefined, disabled: !activeWin },
+        { label: "Pair with Previous Window", hint: shortcutHint("pair-previous"), action: activeWin ? manage("pair-previous") : undefined, disabled: !activeWin },
+        { label: "Tile This Application", hint: shortcutHint("tile-app"), action: activeWin ? manage("tile-app") : undefined, disabled: !activeWin },
+        { label: "Arrange This Display", hint: shortcutHint("arrange-display"), action: activeWin ? manage("arrange-display") : undefined, disabled: !activeWin },
+        { label: "Cascade This Display", hint: shortcutHint("cascade"), action: activeWin ? manage("cascade") : undefined, disabled: !activeWin },
+        { label: "Gather All Windows Here", hint: shortcutHint("gather-all"), action: activeWin ? manage("gather-all") : undefined, disabled: !activeWin },
         "sep",
         { label: "Constellation", hint: "F3", action: onOpenConstellation, announce: false },
-        { label: "Toggle Daybreak", action: onToggleTheme },
+        { label: "Toggle Daybreak", hint: shortcutHint("toggle-appearance"), action: onToggleTheme },
         ...(state.windows.length ? ["sep" as const] : []),
         ...state.windows.map<MenuEntry>((window) => ({
           label: window.title.length > 34 ? `${window.title.slice(0, 33)}…` : window.title,

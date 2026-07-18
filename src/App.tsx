@@ -1,3 +1,5 @@
+import { Component } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { ShellRoot } from "./shell/context";
 import { Stage } from "./surfaces/Stage";
 import { DeepField } from "./surfaces/DeepField";
@@ -6,11 +8,35 @@ import { Orbit } from "./surfaces/Orbit";
 import { Pulse } from "./surfaces/Pulse";
 import { OverlayHost } from "./surfaces/OverlayHost";
 import { SnapPreview } from "./surfaces/SnapPreview";
+import { GravityWells } from "./surfaces/GravityWells";
 import { openOverlay } from "./lib/win";
 import { useShell } from "./shell/context";
 
-/** Routes by ?surface=…  Each Tauri window on Windows loads exactly one
- *  surface; with no param (dev on macOS) the full composed Stage renders. */
+class SurfaceErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
+  state = { message: null as string | null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { message: error instanceof Error ? error.message : String(error) };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Gravity surface failed", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.message) return this.props.children;
+    return (
+      <main className="surfaceFailure" role="alert">
+        <strong>This Gravity surface could not start.</strong>
+        <span>{this.state.message}</span>
+        <button onClick={() => window.location.reload()}>Reload surface</button>
+      </main>
+    );
+  }
+}
+
+/** Routes by ?surface=… Each native window loads exactly one surface; with no
+ * query parameter the full composed development Stage renders. */
 
 function Surface() {
   const { state, actions } = useShell();
@@ -20,6 +46,8 @@ function Surface() {
   switch (surface) {
     case "deepfield":
       return <DeepField />;
+    case "wells":
+      return <GravityWells />;
     case "horizon":
       return (
         <Horizon
@@ -47,7 +75,9 @@ function Surface() {
 export default function App() {
   return (
     <ShellRoot>
-      <Surface />
+      <SurfaceErrorBoundary>
+        <Surface />
+      </SurfaceErrorBoundary>
     </ShellRoot>
   );
 }
