@@ -26,6 +26,7 @@ base64 = "0.22"
 # Windows-only system integration
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+window-vibrancy = "0.6"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 windows = { version = "0.58", features = [

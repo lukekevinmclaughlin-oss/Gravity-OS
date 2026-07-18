@@ -555,6 +555,16 @@ pub fn set_shell_surface_expanded(
         return Err("Surface expansion is only available to Horizon and Orbit".into());
     };
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    // The acrylic backdrop fills the whole window rect, so it is only honest
+    // on the exact-fit closed bar; the grown popup window drops it and the
+    // CSS glass carries the menu panel (NS-1.1).
+    if surface == "horizon" {
+        if expanded {
+            let _ = window_vibrancy::clear_acrylic(&window);
+        } else {
+            let _ = window_vibrancy::apply_acrylic(&window, Some((30, 30, 36, 60)));
+        }
+    }
     crate::platform::shell_control::set_shell_surface_expanded(
         hwnd.0 as isize,
         surface,

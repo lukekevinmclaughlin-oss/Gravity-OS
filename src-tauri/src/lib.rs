@@ -124,6 +124,14 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
         )?;
         horizon.set_size(tauri::PhysicalSize::new(size.width, horizon_height))?;
         horizon.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;
+        // Real behind-window blur (NS-1.1). Only the closed bar is an exact
+        // fit for a rectangular DWM backdrop; the grown popup window clears it
+        // (set_shell_surface_expanded) so transparent margins never show a
+        // blur slab. Failure is fine — CSS glass remains the fallback.
+        #[cfg(windows)]
+        {
+            let _ = window_vibrancy::apply_acrylic(&horizon, Some((30, 30, 36, 60)));
+        }
 
         let orbit = build_surface(
             app,
