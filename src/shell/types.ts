@@ -52,6 +52,14 @@ export interface OrbitSpace {
   name: string;
 }
 
+export interface ThumbnailPlacement {
+  windowId: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface PulseNote {
   id: string;
   appName: string;
@@ -224,6 +232,9 @@ export interface ShellActions {
   toggleShowDesktop(): Promise<boolean>;
   /** Drive the current system media session (SMTC on Windows). */
   mediaControl(kind: MediaControlKind): Promise<void>;
+  /** Publish Constellation card rects (physical px) for live DWM previews;
+   *  an empty list clears them. A browser backend renders identity cards. */
+  setConstellationThumbnails(placements: ThumbnailPlacement[]): Promise<void>;
   /** Real session actions; the development shell presents a visible simulation. */
   powerAction(kind: PowerKind): Promise<void>;
   /** Synthesize an edit chord into the currently focused foreign window. */

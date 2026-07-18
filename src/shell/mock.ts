@@ -50,6 +50,8 @@ const win = (appId: string, title: string, orbitId: string, focused = false): Wi
 export class MockShell implements ShellProviderI {
   private listeners = new Set<() => void>();
   private showDesktopStack: string[] | null = null;
+  /** Last thumbnail layout the overlay published (inspectable in tests). */
+  lastThumbnailPlacements: ReadonlyArray<{ windowId: string; left: number; top: number; width: number; height: number }> = [];
   private state: ShellState = {
     apps: APPS,
     windows: [
@@ -444,6 +446,9 @@ export class MockShell implements ShellProviderI {
     },
     emptyTrash: async () => this.patchStatus({ trashFull: false }),
     openTrash: async () => this.notify("Gravity", "Trash", "Would open the Recycle Bin on Windows."),
+    setConstellationThumbnails: async (placements) => {
+      this.lastThumbnailPlacements = placements;
+    },
     mediaControl: async (kind) => {
       const nowPlaying = this.state.status.nowPlaying;
       if (!nowPlaying) throw new Error("No application is playing media right now");

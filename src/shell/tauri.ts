@@ -183,6 +183,8 @@ export class TauriShell implements ShellProviderI {
     openTrash: () => this.call<void>("open_trash"),
     toggleShowDesktop: () => this.mutate<boolean>("toggle_show_desktop"),
     mediaControl: (kind) => this.mutate<void>("media_control", { kind }),
+    setConstellationThumbnails: (placements) =>
+      this.call<void>("set_constellation_thumbnails", { placements }),
     powerAction: (kind) => this.call<void>("power_action", { kind }),
     editAction: (kind, targetWindowId) =>
       this.call<void>("edit_action", { kind, targetWindowId }),

@@ -75,6 +75,17 @@ describe("MockShell interaction contract", () => {
     expect(restored.find((window) => window.id === parked.id)?.parkedWellId).toBe("well-1");
   });
 
+  it("publishes and clears Constellation thumbnail placements", async () => {
+    const shell = new MockShell();
+    await shell.actions.setConstellationThumbnails([
+      { windowId: "w1", left: 10, top: 20, width: 300, height: 200 },
+    ]);
+    expect(shell.lastThumbnailPlacements).toHaveLength(1);
+    expect(shell.lastThumbnailPlacements[0].windowId).toBe("w1");
+    await shell.actions.setConstellationThumbnails([]);
+    expect(shell.lastThumbnailPlacements).toHaveLength(0);
+  });
+
   it("opens the Trash as the tile's primary action", async () => {
     const shell = new MockShell();
     const before = shell.snapshot().notifications.length;

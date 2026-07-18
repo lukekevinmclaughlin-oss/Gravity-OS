@@ -1142,6 +1142,57 @@ pub fn open_trash(state: State<AppState>) -> Result<(), String> {
     state.platform.open_trash()
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailPlacementInput {
+    pub window_id: String,
+    pub left: f64,
+    pub top: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Live DWM previews for Constellation: the overlay publishes card rects in
+/// physical pixels; an empty list clears every thumbnail it owns.
+#[tauri::command]
+pub fn set_constellation_thumbnails(
+    window: WebviewWindow,
+    placements: Vec<ThumbnailPlacementInput>,
+) -> Result<(), String> {
+    if !window.label().starts_with("overlay-") {
+        return Err("Only an overlay surface can host live thumbnails".into());
+    }
+    #[cfg(windows)]
+    {
+        let dest = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+        if placements.is_empty() {
+            crate::platform::thumbnails::clear_destination(dest);
+            return Ok(());
+        }
+        let entries: Vec<crate::platform::thumbnails::Placement> = placements
+            .iter()
+            .filter_map(|placement| {
+                let source = placement.window_id.parse::<isize>().ok()?;
+                Some(crate::platform::thumbnails::Placement {
+                    source,
+                    rect: (
+                        placement.left.round() as i32,
+                        placement.top.round() as i32,
+                        (placement.left + placement.width).round() as i32,
+                        (placement.top + placement.height).round() as i32,
+                    ),
+                })
+            })
+            .collect();
+        crate::platform::thumbnails::set_thumbnails(dest, &entries)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = placements;
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub fn media_control(
     app: tauri::AppHandle,

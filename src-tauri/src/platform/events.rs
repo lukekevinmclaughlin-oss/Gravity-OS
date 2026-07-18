@@ -12,9 +12,9 @@ use tauri::Emitter;
 use windows::Win32::Foundation::{HMODULE, HWND};
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetAncestor, GetMessageW, EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE, EVENT_OBJECT_NAMECHANGE,
-    EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART, GA_ROOT, MSG, WINEVENT_OUTOFCONTEXT,
-    WINEVENT_SKIPOWNPROCESS,
+    GetAncestor, GetMessageW, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
+    EVENT_OBJECT_NAMECHANGE, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART, GA_ROOT, MSG,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
 static DIRTY: AtomicBool = AtomicBool::new(false);
@@ -38,7 +38,7 @@ pub fn set_shell_active(active: bool) {
 
 unsafe extern "system" fn win_event(
     _hook: HWINEVENTHOOK,
-    _event: u32,
+    event: u32,
     hwnd: HWND,
     object_id: i32,
     child_id: i32,
@@ -47,6 +47,12 @@ unsafe extern "system" fn win_event(
 ) {
     // Top-level window changes only: OBJID_WINDOW / CHILDID_SELF on a root.
     if object_id != 0 || child_id != 0 || hwnd.0.is_null() {
+        return;
+    }
+    if event == EVENT_OBJECT_DESTROY {
+        // A destroyed root can no longer answer GetAncestor; prune first.
+        super::thumbnails::on_window_destroyed(hwnd.0 as isize);
+        DIRTY.store(true, Ordering::Relaxed);
         return;
     }
     if GetAncestor(hwnd, GA_ROOT) != hwnd {

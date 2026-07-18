@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
@@ -22,6 +22,50 @@ export function Constellation({ open, onClose }: ConstellationProps) {
   const [windowMenu, setWindowMenu] = useState<{ windowId: string; x: number; y: number } | null>(null);
   const pointerDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
   const suppressOpen = useRef<string | null>(null);
+  const bodyRefs = useRef(new Map<string, HTMLElement>());
+
+  // Live previews (NS-1.2): publish every card body's physical rect so the
+  // native side composites real DWM thumbnails over them; the identity tile
+  // underneath remains the honest fallback wherever registration fails.
+  const layoutKey = state.windows
+    .filter((w) => w.orbitId === state.activeOrbit)
+    .map((w) => w.id)
+    .join("|");
+  useLayoutEffect(() => {
+    if (!open) {
+      bodyRefs.current.clear();
+      void actions.setConstellationThumbnails([]).catch(() => undefined);
+      return;
+    }
+    let frame = 0;
+    const publish = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const scale = window.devicePixelRatio || 1;
+        const placements = [...bodyRefs.current.entries()]
+          .filter(([, element]) => element.isConnected)
+          .map(([windowId, element]) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              windowId,
+              left: rect.left * scale,
+              top: rect.top * scale,
+              width: rect.width * scale,
+              height: rect.height * scale,
+            };
+          });
+        void actions.setConstellationThumbnails(placements).catch(() => undefined);
+      });
+    };
+    publish();
+    window.addEventListener("resize", publish);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", publish);
+      void actions.setConstellationThumbnails([]).catch(() => undefined);
+    };
+  }, [open, layoutKey, actions]);
+
   if (!open) return null;
 
   const orbitAt = (x: number, y: number) =>
@@ -143,14 +187,13 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                 {appName}
               </div>
               <div className="constel__cards">
-                {groupWins.map((w, i) => {
-                  const mid = (groupWins.length - 1) / 2;
-                  const fan = (i - mid) * 1.6;
+                {groupWins.map((w) => {
+                  // Cards sit straight (exposé grammar): a rotated frame under
+                  // an axis-aligned DWM thumbnail would visibly disagree.
                   return (
                     <div
                       key={w.id}
                       className={`constel__card glass lens ${w.minimized ? "is-min" : ""} ${w.maximized ? "is-max" : ""} ${draggedWindow === w.id ? "is-dragging" : ""}`}
-                      style={{ transform: `rotate(${fan}deg) translateY(${Math.abs(i - mid) * 5}px)` }}
                       onMouseDown={(event) => beginWindowMouseDrag(event, w.id)}
                       onContextMenu={(event) => {
                         event.preventDefault();
@@ -200,6 +243,10 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                         </span>
                         <span
                           className="constel__cardBody"
+                          ref={(element) => {
+                            if (element && !w.minimized) bodyRefs.current.set(w.id, element);
+                            else bodyRefs.current.delete(w.id);
+                          }}
                           style={{
                             background: `linear-gradient(155deg,
                               hsl(${appHue} 40% 22% / 0.85),

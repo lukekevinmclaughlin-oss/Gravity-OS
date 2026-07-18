@@ -97,6 +97,8 @@ pub mod shell_control;
 #[cfg(windows)]
 pub mod snap;
 #[cfg(windows)]
+pub mod thumbnails;
+#[cfg(windows)]
 mod windowing;
 #[cfg(windows)]
 mod windows;
