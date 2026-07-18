@@ -1,6 +1,7 @@
 # Gravity capability and parity matrix
 
-Audit baseline: 2026-07-18, `codex/gravity-os-frontier` at `8b1d993`.
+Audit baseline: 2026-07-18, `codex/gravity-os-frontier` (NS Wave 1 landed; see
+`docs/GRAVITY-NEXT-STACK-WORKFLOW.md` for the program this tracks against).
 
 This document tracks the Windows-native Gravity OS implementation and the shell
 experience needed for a polished daily-driver desktop. A capability is only marked **Complete** when a
@@ -57,18 +58,18 @@ Status vocabulary:
 | Surface / behavior | Status | Evidence and remaining work |
 |---|---|---|
 | Reversible Gravity / Windows 11 handoff | **Complete** | Horizon, Orbit, tray and `Ctrl+Alt+G` restore Explorer's taskbar and Gravity AppBars without changing the default Windows shell. Installer cleanup removes optional shell override state. |
-| Horizon global menu bar | **Complete** | Menus operate on real focused windows and system/session APIs; appearance and Windows handoff are available directly in the bar. Further work is interaction polish and broader focused-app menu synthesis. |
+| Horizon global menu bar | **Complete** | Menus open on the down-stroke, commit on press-drag-release, and slide-track on hover; they operate on real focused windows and system/session APIs. The closed bar carries a real DWM acrylic backdrop (cleared while the popup window is grown). Remaining work is broader focused-app menu synthesis and a Clear material mode. |
 | Orbit application Dock | **Complete** | Installed applications are discovered, registered AppsFolder/AUMID icons are extracted (including ChatGPT and Claude), clicks launch/focus/restore, pins reorder, files open through drop, minimized windows restore, notification badges render per app, and context actions operate on real windows. |
 | Applications library | **Complete** | The installed-app grid uses an opaque Deep Field material, visible border, staged motion, search, running/pinned state, real icons, launch/pin controls, right-click actions, and app-to-Well drag/drop. |
-| Orbit motion and customization | **Complete** | Spring-damped magnification, FLIP reflow and reduced-motion handling are present. Users can change icon size, magnification, radius, spacing, opacity, motion profile, labels, indicators, badges, open-app inclusion, and Floating/Glass/Solid material. Floating mode removes the continuous shelf by default. |
+| Orbit motion and customization | **Complete** | Magnification is cursor-exact (1:1, zero smoothing in-shelf) with the personality spring reserved for shelf enter/exit presence; FLIP reflow and reduced-motion handling are present. Users can change icon size, magnification, radius, spacing, opacity, motion profile, labels, indicators, badges, open-app inclusion, and Floating/Glass/Solid material. |
 | Native minimize-to-Dock visual | **Partial** | Minimized windows are represented in Orbit and restore correctly; a DWM-backed live fly-to-Dock transition is not implemented. |
 | Constellation overview | **Partial** | Window enumeration, focus, close and workspace movement work; cards are representations rather than live DWM thumbnails. |
-| Appearance, desktop menu and wallpapers | **Complete** | System/light/dark modes update every surface. Desktop right-click offers real native grid layouts, automatic capacity-aware Well distribution, Well organization, Dock presets, Windows handoff, and global customization. Curated paired wallpapers persist; personal light/dark images use IndexedDB with fit, position, dim, blur, saturation, tint, reset and local removal. |
+| Appearance, desktop menu and wallpapers | **Complete** | System/light/dark modes update every surface. Eight original accents plus an Auto mode sampled from the active wallpaper recolor every surface through one root token; Reduce Transparency swaps all glass for opaque fills. Double-clicking bare wallpaper toggles a native Show Desktop (minimize/restore of exactly the hidden set), and a boot veil covers surface start. Desktop right-click offers native grid layouts, capacity-aware Well distribution, Dock presets, Windows handoff, and customization. Personal light/dark images use IndexedDB with full adjustment controls. |
 | Gravity Customization | **Complete** | A dedicated Dock icon and desktop action open an opaque native overlay for Desktop, Orbit and Well controls. Every control writes shared live preferences or invokes a real shell action. |
-| Core controls | **Partial** | Volume, supported brightness, network/radio state, focus, power and shell controls have native paths. Media transport/output selection and richer unsupported-device messaging remain. |
-| Pulse notifications | **Partial** | Windows notification access and dismiss paths exist; permission onboarding, action buttons and robust history grouping need expansion. |
+| Core controls | **Partial** | Volume, supported brightness, network/radio state, focus, power and shell controls have native paths. Now Playing reads the WinRT media session with working previous/play-pause/next transport, kept fresh through the event fabric. Artwork, an output-device picker, in-place module expansion and richer unsupported-device messaging remain. |
+| Pulse notifications | **Partial** | Windows notification access and dismiss paths exist; banners linger 6s, pause on hover, and dismiss on a pointer-tracked right swipe. Permission onboarding, action buttons and a history column with grouping need expansion. |
 | Accessibility and keyboard operation | **Partial** | Labels, arrow/Home/End/type-ahead menu navigation, visible current shortcut hints, fourteen new shell/Well shortcuts, remapping, reduced-motion support and visible messages exist. A complete screen-reader and 100/125/150/200% DPI audit remains. |
-| Performance/recovery instrumentation | **Partial** | Event-driven state changes are combined with a low-rate reconciliation poll and shell cleanup paths. Formal idle CPU/memory budgets, watchdog telemetry and failure-injection tests remain. |
+| Performance/recovery instrumentation | **Partial** | A WinEvent fabric (create/destroy/show/hide/title/minimize) pushes debounced state diffs, silenced during Windows handoff; frontend polling is reduced to 15s/60s reconciliation sweeps. `cargo fmt --check` and `clippy -D warnings` pass and run in CI with the frontend gates on every push. Formal idle CPU/memory budgets, supervisor watchdog and failure-injection tests remain. |
 
 ## Ordered implementation backlog
 
