@@ -13,6 +13,8 @@ import {
 } from "../components/Icons";
 import { growHorizonWindow } from "../lib/win";
 import { useDesktopWells, WELL_CAPACITY } from "../lib/wells";
+import { clearNotificationHistory, useNotificationHistory } from "../lib/notificationHistory";
+import { AppTile } from "../components/AppTile";
 import type { WindowAction } from "../shell/types";
 import { formatShortcut } from "../lib/shortcuts";
 import "./horizon.css";
@@ -61,6 +63,8 @@ export function Horizon({
   const { state, actions } = useShell();
   const wells = useDesktopWells();
   const [open, setOpen] = useState<string | null>(null);
+  const [clockOpen, setClockOpen] = useState(false);
+  const history = useNotificationHistory();
   const [windowPalette, setWindowPalette] = useState(false);
   const [confirmPower, setConfirmPower] = useState<"restart" | "shutdown" | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -81,12 +85,12 @@ export function Horizon({
   // Resize to the rendered popup only. The former monitor-height transparent
   // window was able to swallow clicks from every application beneath it.
   useEffect(() => {
-    if (!open && !confirmPower && !windowPalette) {
+    if (!open && !confirmPower && !windowPalette && !clockOpen) {
       void growHorizonWindow(false);
       return;
     }
     const frame = requestAnimationFrame(() => {
-      const popup = document.querySelector<HTMLElement>(".hzMenu, .hzConfirm, .hzWindowPalette");
+      const popup = document.querySelector<HTMLElement>(".hzMenu, .hzConfirm, .hzWindowPalette, .hzClock");
       // The closed native window is only 34px tall, so getBoundingClientRect
       // reports the viewport-clipped menu and creates a 34 -> 55px feedback
       // loop. scrollHeight preserves the full menu content even while clipped.
@@ -96,16 +100,17 @@ export function Horizon({
       void growHorizonWindow(true, needed);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, confirmPower, windowPalette]);
+  }, [open, confirmPower, windowPalette, clockOpen]);
 
   useEffect(() => {
-    if (!open && !confirmPower && !windowPalette) return;
+    if (!open && !confirmPower && !windowPalette && !clockOpen) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(null);
         setConfirmPower(null);
         setWindowPalette(false);
+        setClockOpen(false);
         return;
       }
       if (!open) return;
@@ -131,13 +136,14 @@ export function Horizon({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, confirmPower, windowPalette]);
+  }, [open, confirmPower, windowPalette, clockOpen]);
 
   useEffect(() => {
     const onBlur = () => {
       setOpen(null);
       setConfirmPower(null);
       setWindowPalette(false);
+      setClockOpen(false);
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
@@ -414,7 +420,7 @@ export function Horizon({
 
   return (
     <div className="horizon">
-      {(open || confirmPower || windowPalette) && (
+      {(open || confirmPower || windowPalette || clockOpen) && (
         <button
           className="horizon__scrim"
           aria-label="Close menu"
@@ -422,6 +428,7 @@ export function Horizon({
             setOpen(null);
             setConfirmPower(null);
             setWindowPalette(false);
+            setClockOpen(false);
           }}
         />
       )}
@@ -575,10 +582,57 @@ export function Horizon({
         <button className="horizon__status" onClick={onOpenCore} title="Core">
           <VolumeIcon size={15} level={state.status.volume} />
         </button>
-        <button className="horizon__clock" onClick={onOpenCore} title="Date, time and system controls">
+        <button
+          className="horizon__clock"
+          onClick={() => {
+            setOpen(null);
+            setClockOpen((current) => !current);
+          }}
+          title="Date and notification history"
+          aria-haspopup="dialog"
+          aria-expanded={clockOpen}
+        >
           {clock}
         </button>
       </div>
+
+      {clockOpen && (
+        <div className="hzClock glass-heavy" role="dialog" aria-label="Date and notifications">
+          <div className="hzClock__date">
+            {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+          </div>
+          <div className="hzClock__header">
+            <span>Notifications</span>
+            {history.length > 0 && (
+              <button onClick={() => clearNotificationHistory()}>Clear All</button>
+            )}
+          </div>
+          {history.length === 0 ? (
+            <div className="hzClock__empty">No notifications this week</div>
+          ) : (
+            <div className="hzClock__list">
+              {[...new Set(history.map((note) => note.appName))].map((appName) => {
+                const notes = history.filter((note) => note.appName === appName);
+                return (
+                  <div className="hzClock__group" key={appName}>
+                    <div className="hzClock__groupHead">
+                      <AppTile name={appName} hue={notes[0].hue} size={20} />
+                      <span className="hzClock__appName">{appName}</span>
+                      <small>{notes.length}</small>
+                    </div>
+                    {notes.slice(0, 3).map((note) => (
+                      <div className="hzClock__note" key={note.id}>
+                        <span>{note.title}</span>
+                        {note.body && <small>{note.body}</small>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {confirmPower && (
         <div className="hzConfirm glass-heavy" role="alertdialog" aria-modal="true" aria-label={`${confirmPower} confirmation`}>

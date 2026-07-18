@@ -1,4 +1,4 @@
-/* Horizon — full-width 30px menu bar (spec §3). */
+﻿/* Horizon â€” full-width 30px menu bar (spec Â§3). */
 
 .horizon {
   position: fixed;
@@ -230,7 +230,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Dropdowns — appear instantly (no entrance animation: spec §11). */
+/* Dropdowns â€” appear instantly (no entrance animation: spec Â§11). */
 .hzMenu {
   position: absolute;
   top: calc(var(--bar-h) + 4px);
@@ -363,3 +363,100 @@
     opacity: 0;
   }
 }
+
+/* Clock popover - date plus the shared notification history (NS-8-lite). */
+.hzClock {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  z-index: 60;
+  width: 340px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 14px;
+  border-radius: var(--radius-panel);
+}
+.hzClock__date {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--glass-border);
+  color: var(--ink);
+  font: 600 14px var(--font-ui);
+}
+.hzClock__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 8px;
+  color: var(--ink-faint);
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hzClock__header button {
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--ink-dim);
+  font: 600 11px var(--font-ui);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.hzClock__header button:hover {
+  background: var(--glass-bg-lift);
+  color: var(--ink);
+}
+.hzClock__empty {
+  padding: 18px 0 10px;
+  color: var(--ink-faint);
+  font: 500 12.5px var(--font-ui);
+  text-align: center;
+}
+.hzClock__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hzClock__group {
+  padding: 9px 11px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass-bg-lift);
+}
+.hzClock__groupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.hzClock__appName {
+  flex: 1;
+  color: var(--ink);
+  font: 600 12px var(--font-ui);
+}
+.hzClock__groupHead > small {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: 650 10px var(--font-ui);
+  text-align: center;
+}
+.hzClock__note {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 4px 28px;
+}
+.hzClock__note span {
+  color: var(--ink);
+  font: 550 12px var(--font-ui);
+}
+.hzClock__note small {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--ink-dim);
+  font: 400 11.5px var(--font-ui);
+}
+
+

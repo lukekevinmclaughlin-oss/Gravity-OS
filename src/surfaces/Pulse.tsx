@@ -3,6 +3,7 @@ import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
 import { fitPulseWindow, setPulseInteractionRegion } from "../lib/win";
+import { recordNotifications } from "../lib/notificationHistory";
 import { isTauri } from "../shell/tauri";
 import "./pulse.css";
 
@@ -70,6 +71,12 @@ export function Pulse() {
     }, timer.remaining);
     timer.remaining = null;
   };
+
+  // Every mirrored note lands in the shared history, including those Focus
+  // silences — the clock popover is where silenced notes surface later.
+  useEffect(() => {
+    recordNotifications(state.notifications);
+  }, [state.notifications]);
 
   useEffect(() => {
     // Arm a linger timer once per note; leave existing timers alone so churn
