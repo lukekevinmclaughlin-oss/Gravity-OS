@@ -91,6 +91,18 @@ export interface WindowingState {
   rules: WindowRule[];
 }
 
+export type ShellMode =
+  | "windows"
+  | "entering-gravity"
+  | "gravity"
+  | "leaving-gravity"
+  | "faulted";
+
+export interface ShellTransitionResult {
+  mode: ShellMode;
+  active: boolean;
+}
+
 export interface ShellState {
   apps: AppInfo[];
   windows: WindowInfo[];
@@ -100,6 +112,7 @@ export interface ShellState {
   notifications: PulseNote[];
   appearance: AppearanceState;
   windowing: WindowingState;
+  shellMode: ShellMode;
 }
 
 export interface LaunchResult {
@@ -129,9 +142,9 @@ export type WindowAction =
   | "focus-left" | "focus-right" | "focus-up" | "focus-down";
 
 export interface ShellActions {
-  focusWindow(id: string): void;
-  minimizeWindow(id: string): void;
-  closeWindow(id: string): void;
+  focusWindow(id: string): Promise<void>;
+  minimizeWindow(id: string): Promise<void>;
+  closeWindow(id: string): Promise<void>;
   windowAction(action: WindowAction): Promise<void>;
   windowActionFor(windowId: string, action: WindowAction): Promise<void>;
   /** Resolve only after Windows has accepted the launch request. */
@@ -146,24 +159,24 @@ export interface ShellActions {
   deleteScene(sceneId: string): Promise<void>;
   upsertWindowRule(appId: string, action: WindowAction, enabled: boolean): Promise<void>;
   deleteWindowRule(ruleId: string): Promise<void>;
-  setVolume(v: number): void;
+  setVolume(v: number): Promise<void>;
   setBrightness(v: number): Promise<void>;
   toggleSetting(key: ToggleKey): Promise<void>;
-  dismissNotification(id: string): void;
-  switchOrbit(id: string): void;
+  dismissNotification(id: string): Promise<void>;
+  switchOrbit(id: string): Promise<void>;
   moveWindowToOrbit(windowId: string, orbitId: string): Promise<void>;
-  emptyTrash(): void;
-  /** Real session actions (no-ops on the mock, confirmed in UI first). */
-  powerAction(kind: PowerKind): void;
+  emptyTrash(): Promise<void>;
+  /** Real session actions; the development shell presents a visible simulation. */
+  powerAction(kind: PowerKind): Promise<void>;
   /** Synthesize an edit chord into the currently focused foreign window. */
-  editAction(kind: EditKind): void;
+  editAction(kind: EditKind, targetWindowId?: string): Promise<void>;
   /** Open an ms-settings: deep link (validated in the Rust core). */
-  openSetting(uri: string): void;
+  openSetting(uri: string): Promise<void>;
   /** Gravity ⇄ Windows 11: false hides all surfaces and restores the
    *  taskbar (resume via the tray icon); true re-engages. */
-  setShellActive(active: boolean): void;
+  setShellActive(active: boolean): Promise<ShellTransitionResult>;
   /** Quit Gravity entirely, restoring the Windows desktop first. */
-  quitShell(): void;
+  quitShell(): Promise<void>;
 }
 
 export interface ShellProviderI {

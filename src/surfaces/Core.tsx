@@ -16,7 +16,7 @@ import "./core.css";
 export interface CoreProps {
   open: boolean;
   onClose: () => void;
-  onToggleTheme?: () => void;
+  onToggleTheme?: () => void | Promise<void>;
   daybreak?: boolean;
 }
 
@@ -31,12 +31,15 @@ interface ToggleSpec {
 export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
   const { state, actions } = useShell();
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [volumePreview, setVolumePreview] = useState(() => state.status.volume);
   const [brightnessPreview, setBrightnessPreview] = useState(
     () => state.status.brightness ?? 0.5
   );
   useEffect(() => {
     if (state.status.brightness !== null) setBrightnessPreview(state.status.brightness);
   }, [state.status.brightness]);
+  useEffect(() => setVolumePreview(state.status.volume), [state.status.volume]);
   if (!open) return null;
 
   const s = state.status;
@@ -72,12 +75,24 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
   ];
 
   const fire = (key: ToggleSpec["key"]) => {
-    if (key === "theme") onToggleTheme?.();
-    else void actions.toggleSetting(key).catch((reason) => setError(String(reason)));
+    if (busy) return;
+    setBusy(key);
+    setError(null);
+    const work = key === "theme" ? Promise.resolve(onToggleTheme?.()) : actions.toggleSetting(key);
+    void work.catch((reason) => setError(String(reason))).finally(() => setBusy(null));
   };
 
-  const commitBrightness = () => {
-    void actions.setBrightness(brightnessPreview).catch((reason) => setError(String(reason)));
+  const commitVolume = (event: React.SyntheticEvent<HTMLInputElement>) => {
+    const value = Number(event.currentTarget.value) / 100;
+    setVolumePreview(value);
+    setError(null);
+    void actions.setVolume(value).catch((reason) => setError(String(reason)));
+  };
+
+  const commitBrightness = (event: React.SyntheticEvent<HTMLInputElement>) => {
+    const value = Number(event.currentTarget.value) / 100;
+    setBrightnessPreview(value);
+    void actions.setBrightness(value).catch((reason) => setError(String(reason)));
   };
 
   const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -92,6 +107,8 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
               key={t.key}
               className={`core__toggle ${t.on ? "is-on" : ""}`}
               onClick={() => fire(t.key)}
+              disabled={busy !== null}
+              aria-pressed={t.on}
             >
               <span className="core__toggleIcon">{t.icon}</span>
               <span className="core__toggleText">
@@ -106,14 +123,17 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
         </div>
 
         <div className="core__slider">
-          <VolumeIcon size={16} level={s.volume} />
+          <VolumeIcon size={16} level={volumePreview} />
           <input
             type="range"
             min={0}
             max={100}
-            value={Math.round(s.volume * 100)}
-            onChange={(e) => actions.setVolume(Number(e.target.value) / 100)}
-            style={{ "--fill": pct(s.volume) } as React.CSSProperties}
+            value={Math.round(volumePreview * 100)}
+            aria-label="System volume"
+            onChange={(e) => setVolumePreview(Number(e.target.value) / 100)}
+            onPointerUp={commitVolume}
+            onKeyUp={commitVolume}
+            style={{ "--fill": pct(volumePreview) } as React.CSSProperties}
           />
         </div>
         {s.brightness !== null && (
@@ -122,13 +142,14 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
             <input
               type="range"
               min={0}
-              max={100}
-            value={Math.round(brightnessPreview * 100)}
-            onChange={(e) => setBrightnessPreview(Number(e.target.value) / 100)}
-            onPointerUp={commitBrightness}
-            onKeyUp={commitBrightness}
-            style={{ "--fill": pct(brightnessPreview) } as React.CSSProperties}
-          />
+            max={100}
+              value={Math.round(brightnessPreview * 100)}
+              aria-label="Display brightness"
+              onChange={(e) => setBrightnessPreview(Number(e.target.value) / 100)}
+              onPointerUp={commitBrightness}
+              onKeyUp={commitBrightness}
+              style={{ "--fill": pct(brightnessPreview) } as React.CSSProperties}
+            />
           </div>
         )}
 

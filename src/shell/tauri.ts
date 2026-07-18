@@ -1,4 +1,4 @@
-import type { LaunchResult, ShellActions, ShellProviderI, ShellState } from "./types";
+import type { LaunchResult, ShellActions, ShellProviderI, ShellState, ShellTransitionResult } from "./types";
 import { ipc } from "./ipc";
 
 /** Live backend for every Windows shell surface. */
@@ -28,6 +28,7 @@ const EMPTY: ShellState = {
   notifications: [],
   appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
   windowing: { gap: 10, cycling: true, scenes: [], rules: [] },
+  shellMode: "gravity",
 };
 
 export class TauriShell implements ShellProviderI {
@@ -36,7 +37,7 @@ export class TauriShell implements ShellProviderI {
   private readonly ready: Promise<Invoke>;
   private lastJson = "";
 
-  constructor(pollMs = 1000) {
+  constructor(pollMs = 5000) {
     // Commands issued during WebView startup queue behind this promise.
     this.ready = import("@tauri-apps/api/core").then((core) => core.invoke as Invoke);
     void this.start(pollMs);
@@ -44,6 +45,13 @@ export class TauriShell implements ShellProviderI {
 
   private async start(pollMs: number) {
     await this.refresh();
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      await listen("gravity://state-changed", () => void this.refresh());
+      await listen("gravity://shell-active", () => void this.refresh());
+    } catch (err) {
+      console.error("event subscription failed", err);
+    }
     setInterval(() => void this.refresh(), pollMs);
   }
 
@@ -75,14 +83,16 @@ export class TauriShell implements ShellProviderI {
     return invoke<T>(cmd, args);
   }
 
-  private dispatch(cmd: string, args?: Record<string, unknown>) {
-    void this.call<void>(cmd, args).catch((err) => console.error(cmd, err));
+  private async mutate<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    const result = await this.call<T>(cmd, args);
+    await this.refresh();
+    return result;
   }
 
   actions: ShellActions = {
-    focusWindow: (id) => this.dispatch("focus_window", { id }),
-    minimizeWindow: (id) => this.dispatch("minimize_window", { id }),
-    closeWindow: (id) => this.dispatch("close_window", { id }),
+    focusWindow: (id) => this.mutate<void>("focus_window", { id }),
+    minimizeWindow: (id) => this.mutate<void>("minimize_window", { id }),
+    closeWindow: (id) => this.mutate<void>("close_window", { id }),
     windowAction: (action) => this.call<void>("window_action", { action }),
     windowActionFor: (windowId, action) =>
       this.call<void>("window_action_for", { windowId, action }),
@@ -128,20 +138,20 @@ export class TauriShell implements ShellProviderI {
       await this.call<void>("delete_window_rule", { ruleId });
       await this.refresh();
     },
-    setVolume: (v) => this.dispatch("set_volume", { value: v }),
+    setVolume: (v) => this.mutate<void>("set_volume", { value: v }),
     setBrightness: (v) => this.call<void>("set_brightness", { value: v }),
     toggleSetting: (key) => this.call<void>("toggle_setting", { key }).then(() => this.refresh()),
-    dismissNotification: (id) => this.dispatch("dismiss_notification", { id }),
-    switchOrbit: (id) => {
-      void this.call<void>("switch_orbit", { id }).then(() => this.refresh());
-    },
+    dismissNotification: (id) => this.mutate<void>("dismiss_notification", { id }),
+    switchOrbit: (id) => this.mutate<void>("switch_orbit", { id }),
     moveWindowToOrbit: (windowId, orbitId) =>
       this.call<void>("move_window_to_orbit", { windowId, orbitId }).then(() => this.refresh()),
-    emptyTrash: () => this.dispatch("empty_trash"),
-    powerAction: (kind) => this.dispatch("power_action", { kind }),
-    editAction: (kind) => this.dispatch("edit_action", { kind }),
-    openSetting: (uri) => this.dispatch("open_uri", { uri }),
-    setShellActive: (active) => this.dispatch("set_shell_active", { active }),
-    quitShell: () => this.dispatch("quit_shell"),
+    emptyTrash: () => this.mutate<void>("empty_trash"),
+    powerAction: (kind) => this.call<void>("power_action", { kind }),
+    editAction: (kind, targetWindowId) =>
+      this.call<void>("edit_action", { kind, targetWindowId }),
+    openSetting: (uri) => this.call<void>("open_uri", { uri }),
+    setShellActive: (active) =>
+      this.mutate<ShellTransitionResult>("set_shell_active", { active }),
+    quitShell: () => this.call<void>("quit_shell"),
   };
 }

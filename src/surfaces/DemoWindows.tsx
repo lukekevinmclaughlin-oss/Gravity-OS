@@ -1,6 +1,7 @@
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { mulberry32 } from "../lib/rng";
+import { useState } from "react";
 import "./demowindows.css";
 
 /** Dev-preview only: renders the mock backend's windows as real Gravity-chrome
@@ -22,6 +23,7 @@ function seatOf(id: string): { left: number; top: number; w: number; h: number }
 
 export function DemoWindows() {
   const { state, actions } = useShell();
+  const [maximized, setMaximized] = useState<ReadonlySet<string>>(new Set());
   const wins = state.windows.filter((w) => w.orbitId === state.activeOrbit && !w.minimized);
 
   return (
@@ -30,17 +32,18 @@ export function DemoWindows() {
         const app = state.apps.find((a) => a.id === w.appId);
         if (!app) return null;
         const seat = seatOf(w.id);
+        const isMaximized = maximized.has(w.id);
         return (
           <div
             key={w.id}
-            className={`demoWin glass ${w.focused ? "is-focused" : ""}`}
+            className={`demoWin glass ${w.focused ? "is-focused" : ""} ${isMaximized ? "is-maximized" : ""}`}
             style={{
-              left: `${seat.left}%`,
-              top: `${seat.top}%`,
-              width: `${seat.w}vw`,
-              height: `${seat.h}vh`,
+              left: isMaximized ? "2%" : `${seat.left}%`,
+              top: isMaximized ? "5%" : `${seat.top}%`,
+              width: isMaximized ? "96vw" : `${seat.w}vw`,
+              height: isMaximized ? "82vh" : `${seat.h}vh`,
             }}
-            onMouseDown={() => !w.focused && actions.focusWindow(w.id)}
+            onMouseDown={() => { if (!w.focused) void actions.focusWindow(w.id); }}
           >
             <div className="demoWin__bar">
               <span className="demoWin__orbs">
@@ -49,7 +52,7 @@ export function DemoWindows() {
                   title="Close"
                   onClick={(e) => {
                     e.stopPropagation();
-                    actions.closeWindow(w.id);
+                    void actions.closeWindow(w.id);
                   }}
                 />
                 <button
@@ -57,10 +60,21 @@ export function DemoWindows() {
                   title="Minimize"
                   onClick={(e) => {
                     e.stopPropagation();
-                    actions.minimizeWindow(w.id);
+                    void actions.minimizeWindow(w.id);
                   }}
                 />
-                <button className="demoWin__orb is-zoom" title="Zoom" />
+                <button
+                  className="demoWin__orb is-zoom"
+                  title={isMaximized ? "Restore" : "Zoom"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMaximized((current) => {
+                      const next = new Set(current);
+                      if (next.has(w.id)) next.delete(w.id); else next.add(w.id);
+                      return next;
+                    });
+                  }}
+                />
               </span>
               <span className="demoWin__title">{w.title}</span>
             </div>

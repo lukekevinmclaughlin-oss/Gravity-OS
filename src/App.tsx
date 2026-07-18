@@ -15,7 +15,7 @@ import { useShell } from "./shell/context";
 function Surface() {
   const { state, actions } = useShell();
   const toggleAppearance = () =>
-    void actions.setAppearance(state.appearance.resolved === "light" ? "dark" : "light");
+    actions.setAppearance(state.appearance.resolved === "light" ? "dark" : "light");
   const surface = new URLSearchParams(window.location.search).get("surface");
   switch (surface) {
     case "deepfield":
@@ -28,6 +28,7 @@ function Surface() {
           onOpenConstellation={() => openOverlay("constellation")}
           onToggleTheme={toggleAppearance}
           onOpenWindowStudio={() => openOverlay("window-studio")}
+          onOpenAbout={() => openOverlay("about")}
         />
       );
     case "orbit":

@@ -13,7 +13,7 @@ export interface SingularityProps {
   open: boolean;
   onClose: () => void;
   onOpenConstellation?: () => void;
-  onToggleTheme?: () => void;
+  onToggleTheme?: () => void | Promise<void>;
 }
 
 interface Result {
@@ -24,7 +24,7 @@ interface Result {
   hue?: number;
   appId?: string;
   icon?: React.ReactNode;
-  run: () => void;
+  run: () => void | Promise<void>;
 }
 
 /** Curated ms-settings deep links (spec §5). Opened via the Rust core,
@@ -48,12 +48,16 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
   const { state, actions } = useShell();
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const targetWindowRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (open) {
+      targetWindowRef.current = state.windows.find((window) => window.focused && !window.minimized)?.id;
       setQuery("");
       setSel(0);
+      setError(null);
       // Focus after the entrance animation has begun.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -69,8 +73,11 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
           id: "calc",
           kind: "calc",
           title: formatNumber(value),
-          sub: query.trim(),
-          run: () => onClose(),
+          sub: `${query.trim()} · copy result`,
+          run: async () => {
+            await navigator.clipboard.writeText(formatNumber(value));
+            onClose();
+          },
         });
       }
     }
@@ -86,14 +93,14 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         sub: isAppRunning(state, app.id) ? "Running" : "Application",
         hue: app.hue,
         appId: app.id,
-        run: () => {
-          actions.launchApp(app.id);
+        run: async () => {
+          await actions.launchApp(app.id);
           onClose();
         },
       });
     }
 
-    const allActions: Array<Omit<Result, "run"> & { run: () => void }> = [
+    const allActions: Array<Omit<Result, "run"> & { run: Result["run"] }> = [
       {
         id: "act-const",
         kind: "action",
@@ -111,8 +118,8 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: state.status.focus ? "Disable Focus" : "Enable Focus",
         sub: "Silence Pulse notifications",
         icon: <MoonIcon size={17} />,
-        run: () => {
-          void actions.toggleSetting("focus");
+        run: async () => {
+          await actions.toggleSetting("focus");
           onClose();
         },
       },
@@ -122,8 +129,8 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: "Toggle Daybreak",
         sub: "Switch between dark and light",
         icon: <SunIcon size={17} />,
-        run: () => {
-          onToggleTheme?.();
+        run: async () => {
+          await onToggleTheme?.();
           onClose();
         },
       },
@@ -133,8 +140,10 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: "Window: Left Half",
         sub: "Cycle between half, two-thirds, and one-third",
         icon: <ConstellationIcon size={17} />,
-        run: () => {
-          void actions.windowAction("left-half");
+        run: async () => {
+          const target = targetWindowRef.current;
+          if (!target) throw new Error("Open an application window first.");
+          await actions.windowActionFor(target, "left-half");
           onClose();
         },
       },
@@ -144,8 +153,10 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: "Window: Right Half",
         sub: "Cycle between half, two-thirds, and one-third",
         icon: <ConstellationIcon size={17} />,
-        run: () => {
-          void actions.windowAction("right-half");
+        run: async () => {
+          const target = targetWindowRef.current;
+          if (!target) throw new Error("Open an application window first.");
+          await actions.windowActionFor(target, "right-half");
           onClose();
         },
       },
@@ -155,8 +166,10 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: "Arrange Windows on This Display",
         sub: "Create a balanced, gap-aware grid",
         icon: <ConstellationIcon size={17} />,
-        run: () => {
-          void actions.windowAction("arrange-display");
+        run: async () => {
+          const target = targetWindowRef.current;
+          if (!target) throw new Error("Open an application window first.");
+          await actions.windowActionFor(target, "arrange-display");
           onClose();
         },
       },
@@ -166,8 +179,10 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: "Gather All Windows Here",
         sub: "Bring every window to the active display",
         icon: <ConstellationIcon size={17} />,
-        run: () => {
-          void actions.windowAction("gather-all");
+        run: async () => {
+          const target = targetWindowRef.current;
+          if (!target) throw new Error("Open an application window first.");
+          await actions.windowActionFor(target, "gather-all");
           onClose();
         },
       },
@@ -177,8 +192,8 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
         title: "Empty Trash",
         sub: state.status.trashFull ? "Trash contains items" : "Already empty",
         icon: <TrashIcon size={17} />,
-        run: () => {
-          actions.emptyTrash();
+        run: async () => {
+          await actions.emptyTrash();
           onClose();
         },
       },
@@ -197,8 +212,8 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
           title: s.title,
           sub: "System Settings",
           icon: <SunIcon size={17} />,
-          run: () => {
-            actions.openSetting(s.uri);
+          run: async () => {
+            await actions.openSetting(s.uri);
             onClose();
           },
         });
@@ -214,6 +229,12 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
 
   if (!open) return null;
 
+  const runResult = (result?: Result) => {
+    if (!result) return;
+    setError(null);
+    void Promise.resolve(result.run()).catch((reason) => setError(String(reason)));
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -222,7 +243,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
       e.preventDefault();
       setSel((s) => Math.max(s - 1, 0));
     } else if (e.key === "Enter") {
-      results[sel]?.run();
+      runResult(results[sel]);
     } else if (e.key === "Escape") {
       // Two-stage escape (spec §5): first clears the query, second closes.
       // Stop propagation so outer Escape handlers don't force a close.
@@ -253,7 +274,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
                 key={r.id}
                 className={`sing__item ${i === sel ? "is-sel" : ""} ${r.kind === "calc" ? "is-calc" : ""}`}
                 onMouseEnter={() => setSel(i)}
-                onClick={r.run}
+                onClick={() => runResult(r)}
               >
                 {r.kind === "app" && (
                   <AppTile name={r.title} hue={r.hue!} size={30} appId={r.appId} />
@@ -276,6 +297,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
             ))}
           </div>
         )}
+        {error && <button className="sing__error" role="alert" onClick={() => setError(null)}>{error}</button>}
         <div className="sing__foot">
           <span>
             <span className="keycap">↑↓</span> navigate

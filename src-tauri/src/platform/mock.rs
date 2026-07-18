@@ -5,8 +5,8 @@ use parking_lot::Mutex;
 
 use super::ShellPlatform;
 use crate::shell::{
-    AppearanceState, AppInfo, OrbitSpace, SceneFrame, SceneWindow, ShellState, SystemStatus,
-    WindowInfo, WindowRule, WindowScene, WindowingState,
+    AppearanceState, AppInfo, OrbitSpace, SceneFrame, SceneWindow, ShellMode, ShellState,
+    SystemStatus, WindowInfo, WindowRule, WindowScene, WindowingState,
 };
 
 pub struct MockPlatform {
@@ -63,6 +63,7 @@ impl MockPlatform {
             notifications: Vec::new(),
             appearance: AppearanceState::default(),
             windowing: WindowingState::default(),
+            shell_mode: crate::shell::ShellMode::Gravity,
         };
         Self { state: Mutex::new(state) }
     }
@@ -72,35 +73,67 @@ impl ShellPlatform for MockPlatform {
     fn snapshot(&self) -> ShellState {
         self.state.lock().clone()
     }
-    fn focus_window(&self, id: &str) {
+    fn focus_window(&self, id: &str) -> Result<(), String> {
         let mut s = self.state.lock();
+        if !s.windows.iter().any(|window| window.id == id) {
+            return Err("That window is no longer available".into());
+        }
         for w in &mut s.windows {
             w.focused = w.id == id;
             if w.id == id {
                 w.minimized = false;
             }
         }
+        Ok(())
     }
-    fn minimize_window(&self, id: &str) {
+    fn minimize_window(&self, id: &str) -> Result<(), String> {
         let mut s = self.state.lock();
+        if !s.windows.iter().any(|window| window.id == id) {
+            return Err("That window is no longer available".into());
+        }
         for w in &mut s.windows {
             if w.id == id {
                 w.minimized = true;
                 w.focused = false;
             }
         }
-    }
-    fn close_window(&self, id: &str) {
-        self.state.lock().windows.retain(|w| w.id != id);
-    }
-    fn window_action(&self, _action: &str) -> Result<(), String> {
         Ok(())
     }
-    fn window_action_for(&self, _window_id: &str, _action: &str) -> Result<(), String> {
+    fn close_window(&self, id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let before = state.windows.len();
+        state.windows.retain(|window| window.id != id);
+        if state.windows.len() == before {
+            return Err("That window is no longer available".into());
+        }
         Ok(())
     }
-    fn configure_windowing(&self, _gap: u32, _cycling: bool) {}
-    fn configure_rules(&self, _rules: &[WindowRule]) {}
+    fn window_action(&self, action: &str) -> Result<(), String> {
+        let focused = self
+            .state
+            .lock()
+            .windows
+            .iter()
+            .find(|window| window.focused && !window.minimized)
+            .map(|window| window.id.clone())
+            .ok_or_else(|| "There is no active window to arrange".to_string())?;
+        self.window_action_for(&focused, action)
+    }
+    fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String> {
+        if crate::geometry::Placement::parse(action).is_none() {
+            return Err(format!("Unknown window placement: {action}"));
+        }
+        self.focus_window(window_id)?;
+        Ok(())
+    }
+    fn configure_windowing(&self, gap: u32, cycling: bool) {
+        let mut state = self.state.lock();
+        state.windowing.gap = gap;
+        state.windowing.cycling = cycling;
+    }
+    fn configure_rules(&self, rules: &[WindowRule]) {
+        self.state.lock().windowing.rules = rules.to_vec();
+    }
     fn capture_scene(&self, name: &str) -> Result<WindowScene, String> {
         let state = self.state.lock();
         Ok(WindowScene {
@@ -124,14 +157,62 @@ impl ShellPlatform for MockPlatform {
                 .collect(),
         })
     }
-    fn restore_scene(&self, _scene: &WindowScene) -> Result<(), String> {
+    fn restore_scene(&self, scene: &WindowScene) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let orbit_id = state.active_orbit.clone();
+        let app_ids = state
+            .apps
+            .iter()
+            .map(|app| app.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let mut restored = Vec::new();
+        for (index, scene_window) in scene.windows.iter().enumerate() {
+            if app_ids.contains(&scene_window.app_id) {
+                restored.push(WindowInfo {
+                    id: format!("mock-scene-{}-{index}", scene.id),
+                    app_id: scene_window.app_id.clone(),
+                    title: scene_window.title.clone(),
+                    minimized: false,
+                    focused: index == 0,
+                    orbit_id: orbit_id.clone(),
+                });
+            }
+        }
+        if restored.is_empty() {
+            return Err("None of the applications in this Scene are installed".into());
+        }
+        for window in &mut state.windows {
+            window.focused = false;
+        }
+        state.windows.extend(restored);
         Ok(())
     }
-    fn launch_app(&self, _app_id: &str) -> Result<(), String> {
+    fn launch_app(&self, app_id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let app = state
+            .apps
+            .iter()
+            .find(|app| app.id == app_id)
+            .cloned()
+            .ok_or_else(|| "That application is no longer installed".to_string())?;
+        for window in &mut state.windows {
+            window.focused = false;
+        }
+        let id = format!("mock-{}-{}", app_id, state.windows.len() + 1);
+        let orbit_id = state.active_orbit.clone();
+        state.windows.push(WindowInfo {
+            id,
+            app_id: app.id,
+            title: app.name,
+            minimized: false,
+            focused: true,
+            orbit_id,
+        });
         Ok(())
     }
-    fn set_volume(&self, value: f32) {
+    fn set_volume(&self, value: f32) -> Result<(), String> {
         self.state.lock().status.volume = value.clamp(0.0, 1.0);
+        Ok(())
     }
     fn set_brightness(&self, value: f32) -> Result<(), String> {
         self.state.lock().status.brightness = Some(value.clamp(0.0, 1.0));
@@ -143,18 +224,35 @@ impl ShellPlatform for MockPlatform {
             "wifi" => s.status.online = !s.status.online,
             "bluetooth" => s.status.bluetooth = !s.status.bluetooth,
             "focus" => s.status.focus = !s.status.focus,
-            _ => {}
+            _ => return Err(format!("Unknown setting: {key}")),
         }
         Ok(())
     }
-    fn empty_trash(&self) {
+    fn empty_trash(&self) -> Result<(), String> {
         self.state.lock().status.trash_full = false;
+        Ok(())
     }
-    fn switch_orbit(&self, id: &str) {
-        self.state.lock().active_orbit = id.to_string();
+    fn switch_orbit(&self, id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        if !state.orbits.iter().any(|orbit| orbit.id == id) {
+            return Err("That Orbit does not exist".into());
+        }
+        let target = state
+            .windows
+            .iter()
+            .find(|window| window.orbit_id == id && !window.minimized)
+            .map(|window| window.id.clone());
+        state.active_orbit = id.to_string();
+        for window in &mut state.windows {
+            window.focused = target.as_deref() == Some(window.id.as_str());
+        }
+        Ok(())
     }
     fn move_window_to_orbit(&self, window_id: &str, orbit_id: &str) -> Result<(), String> {
         let mut state = self.state.lock();
+        if !state.orbits.iter().any(|orbit| orbit.id == orbit_id) {
+            return Err("That Orbit does not exist".into());
+        }
         let window = state
             .windows
             .iter_mut()
@@ -162,9 +260,20 @@ impl ShellPlatform for MockPlatform {
             .ok_or_else(|| "That window is no longer available".to_string())?;
         window.orbit_id = orbit_id.to_string();
         Ok(())
-    fn dismiss_notification(&self, id: &str) {
-        self.state.lock().notifications.retain(|n| n.id != id);
     }
-    fn engage_shell(&self) {}
-    fn disengage_shell(&self) {}
+    fn dismiss_notification(&self, id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let before = state.notifications.len();
+        state.notifications.retain(|notification| notification.id != id);
+        if state.notifications.len() == before {
+            return Err("That notification is no longer available".into());
+        }
+        Ok(())
+    }
+    fn engage_shell(&self) {
+        self.state.lock().shell_mode = ShellMode::Gravity;
+    }
+    fn disengage_shell(&self) {
+        self.state.lock().shell_mode = ShellMode::Windows;
+    }
 }

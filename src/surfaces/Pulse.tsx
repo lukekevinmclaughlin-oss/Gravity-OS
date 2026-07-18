@@ -15,13 +15,15 @@ export function Pulse() {
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
   const dismiss = (id: string, remove = true) => {
     // Play the exit animation, then actually remove the note.
     setLeaving((prev) => new Set(prev).add(id));
     setTimeout(() => {
-      if (remove) actions.dismissNotification(id);
-      else setHidden((prev) => new Set(prev).add(id));
+      if (remove) {
+        void actions.dismissNotification(id).catch((reason) => setError(String(reason)));
+      } else setHidden((prev) => new Set(prev).add(id));
       setLeaving((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -109,6 +111,7 @@ export function Pulse() {
           </button>
         </div>
       ))}
+      {error && <button className="pulse__error glass-heavy" role="alert" onClick={() => setError(null)}>{error}</button>}
     </div>
   );
 }

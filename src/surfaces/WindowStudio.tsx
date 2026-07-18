@@ -32,6 +32,7 @@ const SHORTCUTS = [
   ["Ctrl Alt Shift ← / →", "Move to another display"],
   ["F3", "Open Constellation"],
   ["Alt Space", "Open Singularity"],
+  ["Ctrl Alt G", "Switch between Gravity and Windows 11"],
 ];
 
 export function WindowStudio({ open, onClose }: WindowStudioProps) {
@@ -63,7 +64,8 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
 
   const applyLayout = (action: WindowAction) => {
     if (!target) return setMessage("Open an application window first.");
-    report(actions.windowActionFor(target.id, action), undefined, action);
+    const label = LAYOUTS.find((layout) => layout.action === action)?.label ?? action;
+    report(actions.windowActionFor(target.id, action), `${label} applied to “${target.title}”.`, action);
   };
 
   const savePreferences = (nextGap = gap, cycling = state.windowing.cycling) =>
@@ -95,9 +97,9 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
           <button className="windowStudio__close" onClick={onClose} aria-label="Close Window Studio">×</button>
         </header>
 
-        <nav className="windowStudio__tabs" aria-label="Window Studio sections">
+        <nav className="windowStudio__tabs" aria-label="Window Studio sections" role="tablist">
           {(["layouts", "scenes", "rules", "shortcuts"] as const).map((item) => (
-            <button key={item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)}>
+            <button key={item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)} role="tab" aria-selected={tab === item}>
               {item[0].toUpperCase() + item.slice(1)}
             </button>
           ))}
@@ -207,8 +209,8 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
                 {state.windowing.rules.map((rule) => (
                   <article key={rule.id} className={rule.enabled ? "" : "is-disabled"}>
                     <div><b>{rule.appName}</b><small>{LAYOUTS.find((layout) => layout.action === rule.action)?.label ?? rule.action}</small></div>
-                    <button onClick={() => report(actions.upsertWindowRule(rule.appId, rule.action, !rule.enabled), rule.enabled ? "Rule paused." : "Rule enabled.", rule.id)}>{rule.enabled ? "Pause" : "Enable"}</button>
-                    <button className="is-danger" onClick={() => report(actions.deleteWindowRule(rule.id), "Rule deleted.", rule.id)}>Delete</button>
+                    <button disabled={busy !== null} onClick={() => report(actions.upsertWindowRule(rule.appId, rule.action, !rule.enabled), rule.enabled ? "Rule paused." : "Rule enabled.", rule.id)}>{rule.enabled ? "Pause" : "Enable"}</button>
+                    <button className="is-danger" disabled={busy !== null} onClick={() => report(actions.deleteWindowRule(rule.id), "Rule deleted.", rule.id)}>Delete</button>
                   </article>
                 ))}
                 {state.windowing.rules.length === 0 && <div className="windowStudio__empty">Add a Rule to place an application's windows automatically.</div>}

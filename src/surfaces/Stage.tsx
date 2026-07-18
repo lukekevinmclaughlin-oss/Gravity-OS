@@ -9,7 +9,9 @@ import { Constellation } from "./Constellation";
 import { Pulse } from "./Pulse";
 import { WindowStudio } from "./WindowStudio";
 import { AppLibrary } from "./AppLibrary";
+import { AboutGravity } from "./AboutGravity";
 import { useShell } from "../shell/context";
+import type { OverlaySurface } from "../lib/win";
 import "./stage.css";
 
 /** Stage — the composed desktop. On macOS this is the dev harness with the
@@ -18,15 +20,11 @@ import "./stage.css";
 
 export function Stage() {
   const { state, actions } = useShell();
-  const [singOpen, setSingOpen] = useState(false);
-  const [coreOpen, setCoreOpen] = useState(false);
-  const [constOpen, setConstOpen] = useState(false);
-  const [studioOpen, setStudioOpen] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [overlay, setOverlay] = useState<OverlaySurface | null>(null);
   const daybreak = state.appearance.resolved === "light";
 
   const toggleTheme = useCallback(
-    () => void actions.setAppearance(daybreak ? "dark" : "light"),
+    () => actions.setAppearance(daybreak ? "dark" : "light"),
     [actions, daybreak]
   );
 
@@ -34,51 +32,44 @@ export function Stage() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setSingOpen((o) => !o);
-        setCoreOpen(false);
-        setConstOpen(false);
-        setStudioOpen(false);
-        setLibraryOpen(false);
+        setOverlay((current) => (current === "singularity" ? null : "singularity"));
       } else if (e.key === "F3") {
         e.preventDefault();
-        setConstOpen((o) => !o);
-        setSingOpen(false);
-        setCoreOpen(false);
-        setStudioOpen(false);
-        setLibraryOpen(false);
+        setOverlay((current) => (current === "constellation" ? null : "constellation"));
       } else if (e.key === "Escape") {
-        setSingOpen(false);
-        setCoreOpen(false);
-        setConstOpen(false);
-        setStudioOpen(false);
-        setLibraryOpen(false);
+        setOverlay(null);
+      } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        void actions.setShellActive(state.shellMode !== "gravity");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [actions, state.shellMode]);
 
   return (
-    <div className="stage" style={singOpen ? { transform: "scale(1.012)" } : undefined}>
+    <div className="stage" style={overlay === "singularity" ? { transform: "scale(1.012)" } : undefined}>
       <DeepField />
       <DemoWindows />
       <Horizon
-        onOpenCore={() => setCoreOpen((o) => !o)}
-        onOpenConstellation={() => setConstOpen(true)}
-        onOpenSingularity={() => setSingOpen(true)}
+        onOpenCore={() => setOverlay((current) => (current === "core" ? null : "core"))}
+        onOpenConstellation={() => setOverlay((current) => (current === "constellation" ? null : "constellation"))}
+        onOpenSingularity={() => setOverlay((current) => (current === "singularity" ? null : "singularity"))}
         onToggleTheme={toggleTheme}
-        onOpenWindowStudio={() => setStudioOpen(true)}
+        onOpenWindowStudio={() => setOverlay((current) => (current === "window-studio" ? null : "window-studio"))}
+        onOpenAbout={() => setOverlay((current) => (current === "about" ? null : "about"))}
       />
-      <Orbit onOpenAppLibrary={() => setLibraryOpen(true)} />
+      <Orbit onOpenAppLibrary={() => setOverlay((current) => (current === "app-library" ? null : "app-library"))} />
       <Pulse />
-      <Core open={coreOpen} onClose={() => setCoreOpen(false)} onToggleTheme={toggleTheme} daybreak={daybreak} />
-      <Constellation open={constOpen} onClose={() => setConstOpen(false)} />
-      <WindowStudio open={studioOpen} onClose={() => setStudioOpen(false)} />
-      <AppLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)} />
+      <Core open={overlay === "core"} onClose={() => setOverlay(null)} onToggleTheme={toggleTheme} daybreak={daybreak} />
+      <Constellation open={overlay === "constellation"} onClose={() => setOverlay(null)} />
+      <WindowStudio open={overlay === "window-studio"} onClose={() => setOverlay(null)} />
+      <AppLibrary open={overlay === "app-library"} onClose={() => setOverlay(null)} />
+      <AboutGravity open={overlay === "about"} onClose={() => setOverlay(null)} />
       <Singularity
-        open={singOpen}
-        onClose={() => setSingOpen(false)}
-        onOpenConstellation={() => setConstOpen(true)}
+        open={overlay === "singularity"}
+        onClose={() => setOverlay(null)}
+        onOpenConstellation={() => setOverlay("constellation")}
         onToggleTheme={toggleTheme}
       />
       <div className="stage__hint">

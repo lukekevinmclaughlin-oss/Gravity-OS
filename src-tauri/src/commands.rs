@@ -1,13 +1,16 @@
 //! Tauri IPC surface. Thin wrappers over the active `ShellPlatform`.
 
-use tauri::State;
+use parking_lot::Mutex;
+use tauri::{Emitter, State};
 
 #[cfg(windows)]
 use tauri::WebviewWindow;
 
 use crate::platform::ShellPlatform;
 use crate::settings::SettingsStore;
-use crate::shell::{AppearanceMode, ShellState, WindowRule, WindowScene};
+use crate::shell::{
+    AppearanceMode, ShellMode, ShellState, ShellTransitionResult, WindowRule, WindowScene,
+};
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +22,7 @@ pub struct LaunchResult {
 pub struct AppState {
     pub platform: Box<dyn ShellPlatform>,
     pub settings: SettingsStore,
+    pub shell_mode: Mutex<ShellMode>,
 }
 
 impl AppState {
@@ -31,6 +35,7 @@ impl AppState {
         Self {
             platform,
             settings,
+            shell_mode: Mutex::new(ShellMode::Gravity),
         }
     }
 }
@@ -39,7 +44,12 @@ impl AppState {
 pub fn get_shell_state(state: State<AppState>) -> ShellState {
     let mut snapshot = state.platform.snapshot();
     state.settings.apply_to_state(&mut snapshot);
+    snapshot.shell_mode = *state.shell_mode.lock();
     snapshot
+}
+
+fn state_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("gravity://state-changed", ());
 }
 
 #[cfg(windows)]
@@ -55,71 +65,89 @@ pub fn fit_orbit_window(window: WebviewWindow, app_count: u32) -> Result<(), Str
 
 #[tauri::command]
 pub fn set_app_pinned(
+    app: tauri::AppHandle,
     state: State<AppState>,
     app_id: String,
     pinned: bool,
 ) -> Result<(), String> {
     let catalog = state.platform.snapshot().apps;
-    state.settings.set_app_pinned(&catalog, &app_id, pinned)
+    state.settings.set_app_pinned(&catalog, &app_id, pinned)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn reorder_pinned_apps(
+    app: tauri::AppHandle,
     state: State<AppState>,
     app_ids: Vec<String>,
 ) -> Result<(), String> {
     let catalog = state.platform.snapshot().apps;
-    state.settings.reorder_pinned(&catalog, app_ids)
+    state.settings.reorder_pinned(&catalog, app_ids)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn set_appearance(state: State<AppState>, mode: AppearanceMode) -> Result<(), String> {
-    state.settings.set_appearance(mode)
+pub fn set_appearance(app: tauri::AppHandle, state: State<AppState>, mode: AppearanceMode) -> Result<(), String> {
+    state.settings.set_appearance(mode)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn set_wallpaper(state: State<AppState>, wallpaper_id: String) -> Result<(), String> {
-    state.settings.set_wallpaper(wallpaper_id)
+pub fn set_wallpaper(app: tauri::AppHandle, state: State<AppState>, wallpaper_id: String) -> Result<(), String> {
+    state.settings.set_wallpaper(wallpaper_id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn set_window_preferences(
+    app: tauri::AppHandle,
     state: State<AppState>,
     gap: u32,
     cycling: bool,
 ) -> Result<(), String> {
     state.settings.set_window_preferences(gap, cycling)?;
     state.platform.configure_windowing(gap, cycling);
+    state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn capture_scene(state: State<AppState>, name: String) -> Result<WindowScene, String> {
+pub fn capture_scene(app: tauri::AppHandle, state: State<AppState>, name: String) -> Result<WindowScene, String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 64 {
         return Err("Scene names must contain 1 to 64 characters".into());
     }
     let scene = state.platform.capture_scene(name)?;
     state.settings.add_scene(scene.clone())?;
+    state_changed(&app);
     Ok(scene)
 }
 
 #[tauri::command]
-pub fn restore_scene(state: State<AppState>, scene_id: String) -> Result<(), String> {
+pub fn restore_scene(app: tauri::AppHandle, state: State<AppState>, scene_id: String) -> Result<(), String> {
     let scene = state
         .settings
         .scene(&scene_id)
         .ok_or_else(|| "That Scene no longer exists".to_string())?;
-    state.platform.restore_scene(&scene)
+    state.platform.restore_scene(&scene)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn delete_scene(state: State<AppState>, scene_id: String) -> Result<(), String> {
-    state.settings.delete_scene(&scene_id)
+pub fn delete_scene(app: tauri::AppHandle, state: State<AppState>, scene_id: String) -> Result<(), String> {
+    state.settings.delete_scene(&scene_id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn upsert_window_rule(
+    app: tauri::AppHandle,
     state: State<AppState>,
     app_id: String,
     action: String,
@@ -129,60 +157,74 @@ pub fn upsert_window_rule(
         return Err("Rules only support deterministic placement layouts".into());
     }
     let catalog = state.platform.snapshot().apps;
-    let app = catalog
+    let app_info = catalog
         .iter()
         .find(|app| app.id == app_id)
         .ok_or_else(|| "That application is no longer installed".to_string())?;
     state.settings.upsert_rule(WindowRule {
         id: format!("rule-{app_id}"),
         app_id,
-        app_name: app.name.clone(),
+        app_name: app_info.name.clone(),
         action,
         enabled,
     })?;
     state.platform.configure_rules(&state.settings.rules());
+    state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_window_rule(state: State<AppState>, rule_id: String) -> Result<(), String> {
+pub fn delete_window_rule(app: tauri::AppHandle, state: State<AppState>, rule_id: String) -> Result<(), String> {
     state.settings.delete_rule(&rule_id)?;
     state.platform.configure_rules(&state.settings.rules());
+    state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn focus_window(state: State<AppState>, id: String) {
-    state.platform.focus_window(&id);
+pub fn focus_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    state.platform.focus_window(&id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn minimize_window(state: State<AppState>, id: String) {
-    state.platform.minimize_window(&id);
+pub fn minimize_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    state.platform.minimize_window(&id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn close_window(state: State<AppState>, id: String) {
-    state.platform.close_window(&id);
+pub fn close_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    state.platform.close_window(&id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn window_action(state: State<AppState>, action: String) -> Result<(), String> {
-    state.platform.window_action(&action)
+pub fn window_action(app: tauri::AppHandle, state: State<AppState>, action: String) -> Result<(), String> {
+    state.platform.window_action(&action)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn window_action_for(
+    app: tauri::AppHandle,
     state: State<AppState>,
     window_id: String,
     action: String,
 ) -> Result<(), String> {
-    state.platform.window_action_for(&window_id, &action)
+    state.platform.window_action_for(&window_id, &action)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn launch_app(state: State<AppState>, app_id: String) -> Result<LaunchResult, String> {
+pub fn launch_app(app: tauri::AppHandle, state: State<AppState>, app_id: String) -> Result<LaunchResult, String> {
     state.platform.launch_app(&app_id)?;
+    state_changed(&app);
     Ok(LaunchResult {
         app_id,
         accepted: true,
@@ -190,42 +232,57 @@ pub fn launch_app(state: State<AppState>, app_id: String) -> Result<LaunchResult
 }
 
 #[tauri::command]
-pub fn set_volume(state: State<AppState>, value: f32) {
-    state.platform.set_volume(value);
+pub fn set_volume(app: tauri::AppHandle, state: State<AppState>, value: f32) -> Result<(), String> {
+    state.platform.set_volume(value)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn set_brightness(state: State<AppState>, value: f32) -> Result<(), String> {
-    state.platform.set_brightness(value)
+pub fn set_brightness(app: tauri::AppHandle, state: State<AppState>, value: f32) -> Result<(), String> {
+    state.platform.set_brightness(value)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_setting(state: State<AppState>, key: String) -> Result<(), String> {
-    state.platform.toggle_setting(&key)
+pub fn toggle_setting(app: tauri::AppHandle, state: State<AppState>, key: String) -> Result<(), String> {
+    state.platform.toggle_setting(&key)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dismiss_notification(state: State<AppState>, id: String) {
-    state.platform.dismiss_notification(&id);
+pub fn dismiss_notification(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    state.platform.dismiss_notification(&id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn switch_orbit(state: State<AppState>, id: String) {
-    state.platform.switch_orbit(&id);
+pub fn switch_orbit(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    state.platform.switch_orbit(&id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn move_window_to_orbit(
+    app: tauri::AppHandle,
     state: State<AppState>,
     window_id: String,
     orbit_id: String,
 ) -> Result<(), String> {
-    state.platform.move_window_to_orbit(&window_id, &orbit_id)
+    state.platform.move_window_to_orbit(&window_id, &orbit_id)?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn empty_trash(state: State<AppState>) {
-    state.platform.empty_trash();
+pub fn empty_trash(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.platform.empty_trash()?;
+    state_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -297,14 +354,18 @@ pub fn power_action(kind: String) -> Result<(), String> {
 
 /// Synthesize a Ctrl edit chord into the focused foreign window (spec §3).
 #[tauri::command]
-pub fn edit_action(kind: String) -> Result<(), String> {
+pub fn edit_action(kind: String, target_window_id: Option<String>) -> Result<(), String> {
     #[cfg(windows)]
     {
-        crate::platform::input::edit_chord(&kind)
+        if let Some(window_id) = target_window_id {
+            crate::platform::input::edit_chord_for(&window_id, &kind)
+        } else {
+            crate::platform::input::edit_chord(&kind)
+        }
     }
     #[cfg(not(windows))]
     {
-        let _ = kind;
+        let _ = (kind, target_window_id);
         Ok(())
     }
 }
@@ -325,12 +386,23 @@ pub fn open_uri(uri: String) -> Result<(), String> {
 
 /// The Gravity ⇄ Windows 11 toggle (Horizon menu + dock tile + tray).
 #[tauri::command]
-pub fn set_shell_active(app: tauri::AppHandle, active: bool) {
+pub fn set_shell_active(
+    app: tauri::AppHandle,
+    active: bool,
+) -> Result<ShellTransitionResult, String> {
     #[cfg(windows)]
-    crate::set_shell_active_impl(&app, active);
+    {
+        crate::set_shell_active_impl(&app, active)
+    }
     #[cfg(not(windows))]
     {
-        let _ = (app, active);
+        let mode = if active {
+            ShellMode::Gravity
+        } else {
+            ShellMode::Windows
+        };
+        *app.state::<AppState>().shell_mode.lock() = mode;
+        Ok(ShellTransitionResult { mode, active })
     }
 }
 
@@ -338,7 +410,7 @@ pub fn set_shell_active(app: tauri::AppHandle, active: bool) {
 #[tauri::command]
 pub fn quit_shell(app: tauri::AppHandle) {
     #[cfg(windows)]
-    crate::set_shell_active_impl(&app, false);
+    let _ = crate::set_shell_active_impl(&app, false);
     app.exit(0);
 }
 

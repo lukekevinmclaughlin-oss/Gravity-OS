@@ -4,6 +4,7 @@ import { Core } from "./Core";
 import { Constellation } from "./Constellation";
 import { WindowStudio } from "./WindowStudio";
 import { AppLibrary } from "./AppLibrary";
+import { AboutGravity } from "./AboutGravity";
 import { hideOverlaySelf, type OverlaySurface } from "../lib/win";
 import { useShell } from "../shell/context";
 
@@ -18,8 +19,9 @@ export function OverlayHost() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<{ surface: OverlaySurface }>("gravity://overlay", (e) => {
+      listen<{ surface: OverlaySurface | null }>("gravity://overlay", (e) => {
         setSurface(e.payload.surface);
+        if (e.payload.surface === null) void hideOverlaySelf();
       }).then((u) => {
         unlisten = u;
       });
@@ -32,7 +34,7 @@ export function OverlayHost() {
     void hideOverlaySelf();
   };
   const toggleAppearance = () =>
-    void actions.setAppearance(state.appearance.resolved === "light" ? "dark" : "light");
+    actions.setAppearance(state.appearance.resolved === "light" ? "dark" : "light");
 
   return (
     <>
@@ -51,6 +53,7 @@ export function OverlayHost() {
       <Constellation open={surface === "constellation"} onClose={close} />
       <WindowStudio open={surface === "window-studio"} onClose={close} />
       <AppLibrary open={surface === "app-library"} onClose={close} />
+      <AboutGravity open={surface === "about"} onClose={close} />
     </>
   );
 }

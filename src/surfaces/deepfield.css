@@ -4,6 +4,7 @@
   overflow: hidden;
   background: var(--bg-deep);
 }
+.deepField:focus { outline: none; }
 
 .deepField__image,
 .deepField__live {
@@ -29,6 +30,8 @@
   position: fixed;
   z-index: 80;
   width: 332px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: 8px;
   border-radius: 14px;
   color: var(--ink);
@@ -125,4 +128,43 @@
   color: var(--accent);
   font-size: 16px;
   font-weight: 700;
+}
+
+.desktopMenu__windows {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 9px;
+  color: var(--ink);
+  text-align: left;
+}
+.desktopMenu__windows:hover,
+.desktopMenu__windows:focus-visible {
+  background: var(--glass-bg-lift);
+  outline: none;
+}
+.desktopMenu__windowsIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--glass-bg-lift));
+  color: #66a2ff;
+}
+.desktopMenu__windows strong,
+.desktopMenu__windows small { display: block; }
+.desktopMenu__windows strong { font-size: 12px; }
+.desktopMenu__windows small { margin-top: 2px; color: var(--ink-faint); font-size: 10px; }
+.desktopMenu__error {
+  width: 100%;
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--glass-border));
+  border-radius: 8px;
+  color: var(--ink);
+  text-align: left;
 }

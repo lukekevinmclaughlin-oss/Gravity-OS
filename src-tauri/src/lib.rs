@@ -8,6 +8,7 @@ mod settings;
 mod shell;
 
 use commands::AppState;
+use shell::{ShellMode, ShellTransitionResult};
 use tauri::Manager;
 
 #[cfg(windows)]
@@ -42,8 +43,9 @@ fn build_surface(
     .shadow(false)
     .resizable(false)
     .focused(false)
-    // Strips are non-activating (like the macOS menu bar and Dock): clicking
-    // them must not steal focus, so Edit chords reach the frontmost app.
+    // Interactive surfaces must be focusable for reliable WebView2 pointer,
+    // keyboard, context-menu and accessibility behavior. Horizon preserves
+    // its foreign target explicitly before it takes focus.
     .focusable(focusable)
     .visible(visible)
     .build()
@@ -80,7 +82,7 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
             &surface_url("deepfield"),
             false,
             true,
-            false,
+            true,
         )?;
         deepfield.set_size(tauri::PhysicalSize::new(size.width, size.height))?;
         deepfield.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;
@@ -94,7 +96,7 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
             &surface_url("horizon"),
             true,
             true,
-            false,
+            true,
         )?;
         horizon.set_size(tauri::PhysicalSize::new(size.width, horizon_height))?;
         horizon.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;
@@ -105,7 +107,7 @@ fn setup_shell(app: &tauri::App) -> tauri::Result<()> {
             &surface_url("orbit"),
             true,
             true,
-            false,
+            true,
         )?;
         let orbit_width = ((980.0 * scale).round() as u32).min(size.width);
         orbit.set_size(tauri::PhysicalSize::new(orbit_width, orbit_height))?;
@@ -188,7 +190,7 @@ fn open_overlay_surface(app: &tauri::AppHandle, surface: &str) {
 }
 
 #[cfg(windows)]
-fn register_surface_appbars(app: &tauri::AppHandle) {
+fn negotiate_surface_appbars(app: &tauri::AppHandle) {
     use platform::shell_control::{register_app_bar, AppBarEdge};
     use windows::Win32::Foundation::RECT;
 
@@ -227,73 +229,93 @@ fn register_surface_appbars(app: &tauri::AppHandle) {
         }
     }
 
-    anchor_shell_surfaces(app);
-
-    // Explorer applies the negotiated AppBar rectangles asynchronously. A
-    // second anchor after that commit keeps Horizon flush to the monitor edge
-    // while its reservation begins immediately below it.
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(160));
-        anchor_shell_surfaces(&app);
-    });
 }
 
 #[cfg(windows)]
-fn anchor_shell_surfaces(app: &tauri::AppHandle) {
-    let mut monitors = app.available_monitors().unwrap_or_default();
-    monitors.sort_by_key(|monitor| (monitor.position().x, monitor.position().y));
+fn register_surface_appbars(app: &tauri::AppHandle) {
+    negotiate_surface_appbars(app);
 
-    // AppBar reservation and visual hitbox are intentionally separate for
-    // Orbit, whose transparent margins must never steal application clicks.
-    for (index, monitor) in monitors.iter().enumerate() {
-        let position = monitor.position();
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
-        let horizon_height = (HORIZON_STRIP * scale).round() as u32;
-        if let Some(horizon) = app.get_webview_window(&format!("horizon-{index}")) {
-            let _ = horizon.set_size(tauri::PhysicalSize::new(size.width, horizon_height));
-            let _ = horizon.set_position(tauri::PhysicalPosition::new(position.x, position.y));
-        }
-        let orbit_height = (ORBIT_STRIP * scale).round() as u32;
-        let orbit_width = ((980.0 * scale).round() as u32).min(size.width);
-        if let Some(orbit) = app.get_webview_window(&format!("orbit-{index}")) {
-            let _ = orbit.set_size(tauri::PhysicalSize::new(orbit_width, orbit_height));
-            let _ = orbit.set_position(tauri::PhysicalPosition::new(
-                position.x + (size.width - orbit_width) as i32 / 2,
-                position.y + size.height as i32 - orbit_height as i32,
-            ));
-        }
-    }
+    // Explorer publishes a late work-area relayout after ABM_SETPOS. Reassert
+    // the immutable physical coordinates once that broadcast has drained.
+    // This retry uses raw Win32 only and is serialized with Windows handoff in
+    // shell_control; it cannot block or re-enter the WebView event loop.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        platform::shell_control::refresh_app_bars_if_active();
+    });
 }
 
 /// The Gravity ⇄ Windows 11 toggle: suspend hides every Gravity surface and
 /// hands the desktop back (taskbar + work area); resume re-engages. The tray
 /// icon stays either way, so Windows mode always has a way back.
 #[cfg(windows)]
-pub(crate) fn set_shell_active_impl(app: &tauri::AppHandle, active: bool) {
+pub(crate) fn set_shell_active_impl(
+    app: &tauri::AppHandle,
+    active: bool,
+) -> Result<ShellTransitionResult, String> {
     use tauri::Emitter;
     let state = app.state::<AppState>();
+    let settled = if active { ShellMode::Gravity } else { ShellMode::Windows };
+    {
+        // Never hold this state mutex while emitting events, talking to
+        // Explorer, or dispatching Tauri window operations. Those paths can
+        // synchronously re-enter `get_shell_state` from WebView2 or the global
+        // shortcut event loop; keeping the guard would deadlock the shell.
+        let mut mode = state.shell_mode.lock();
+        if *mode == settled {
+            return Ok(ShellTransitionResult { mode: settled, active });
+        }
+        *mode = if active {
+            ShellMode::EnteringGravity
+        } else {
+            ShellMode::LeavingGravity
+        };
+    }
+    let _ = app.emit("gravity://state-changed", ());
+
+    let mut failures = Vec::new();
     if active {
         state.platform.engage_shell();
-        register_surface_appbars(app);
-    } else {
-        state.platform.disengage_shell();
     }
     for (label, window) in app.webview_windows() {
         if ["deepfield-", "horizon-", "orbit-"]
             .iter()
             .any(|prefix| label.starts_with(prefix))
         {
-            let _ = if active { window.show() } else { window.hide() };
+            let result = if active { window.show() } else { window.hide() };
+            if let Err(error) = result {
+                failures.push(format!("{label}: {error}"));
+            }
         } else if label.starts_with("overlay-")
             || label.starts_with("snap-")
             || label.starts_with("pulse-")
         {
-            let _ = window.hide();
+            if let Err(error) = window.hide() {
+                failures.push(format!("{label}: {error}"));
+            }
         }
     }
+    if active {
+        // Showing a previously hidden WebView can restore the work-area-
+        // relative placement cached by Windows. Negotiate and position the
+        // AppBars only after every strip is visible so the raw physical
+        // coordinates remain authoritative across repeated handoffs.
+        register_surface_appbars(app);
+    } else {
+        state.platform.disengage_shell();
+    }
+
+    if !failures.is_empty() {
+        *state.shell_mode.lock() = ShellMode::Faulted;
+        let message = format!("Shell transition was incomplete: {}", failures.join("; "));
+        let _ = app.emit("gravity://state-changed", ());
+        return Err(message);
+    }
+
+    *state.shell_mode.lock() = settled;
     let _ = app.emit("gravity://shell-active", active);
+    let _ = app.emit("gravity://state-changed", ());
+    Ok(ShellTransitionResult { mode: settled, active })
 }
 
 #[cfg(windows)]
@@ -314,10 +336,10 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         tray = tray.icon(icon);
     }
     tray.on_menu_event(|app, event| match event.id.as_ref() {
-        "resume" => set_shell_active_impl(app, true),
-        "windows11" => set_shell_active_impl(app, false),
+        "resume" => { let _ = set_shell_active_impl(app, true); }
+        "windows11" => { let _ = set_shell_active_impl(app, false); }
         "quit" => {
-            set_shell_active_impl(app, false);
+            let _ = set_shell_active_impl(app, false);
             app.exit(0);
         }
         _ => {}
@@ -328,6 +350,14 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 pub fn run() {
     let builder = tauri::Builder::default();
+
+    // A second launch is a deliberate "resume Gravity" action. This keeps
+    // the Start menu and desktop shortcut useful while Windows mode is active
+    // without ever creating a duplicate shell process.
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        let _ = set_shell_active_impl(app, true);
+    }));
 
     // Global hotkeys (spec §12): Alt+Space → Singularity (Spotlight muscle
     // memory, PowerToys-Run precedent), Ctrl+Alt+Up → Constellation
@@ -349,6 +379,7 @@ pub fn run() {
         let next_display: Shortcut = "ctrl+alt+shift+right"
             .parse()
             .expect("parse next display");
+        let toggle_shell: Shortcut = "ctrl+alt+g".parse().expect("parse shell toggle");
         builder.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcuts([
@@ -362,11 +393,19 @@ pub fn run() {
                     undo,
                     previous_display,
                     next_display,
+                    toggle_shell,
                 ])
                 .expect("register global shortcuts")
                 .with_handler(move |app, shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        if *shortcut == alt_space {
+                        if *shortcut == toggle_shell {
+                            let active = {
+                                let state = app.state::<AppState>();
+                                let mode = *state.shell_mode.lock();
+                                matches!(mode, ShellMode::Gravity | ShellMode::EnteringGravity)
+                            };
+                            let _ = set_shell_active_impl(app, !active);
+                        } else if *shortcut == alt_space {
                             open_overlay_surface(app, "singularity");
                         } else if *shortcut == constellation {
                             open_overlay_surface(app, "constellation");
@@ -401,7 +440,7 @@ pub fn run() {
         )
     };
 
-    builder
+    let app = builder
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::get_shell_state,
@@ -450,13 +489,13 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            // When the shell exits, always hand the desktop back.
-            if let tauri::WindowEvent::Destroyed = event {
-                let state = window.state::<AppState>();
-                state.platform.disengage_shell();
-            }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running Gravity OS");
+        .build(tauri::generate_context!())
+        .expect("error while building Gravity OS");
+
+    app.run(|app, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            let state = app.state::<AppState>();
+            state.platform.disengage_shell();
+        }
+    });
 }

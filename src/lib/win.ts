@@ -3,7 +3,9 @@ import { isTauri } from "../shell/tauri";
 /** Cross-window control for the multi-window Windows shell. On macOS dev
  *  (no Tauri) these are no-ops and the composed Stage handles overlays. */
 
-export type OverlaySurface = "singularity" | "core" | "constellation" | "window-studio" | "app-library";
+export type OverlaySurface = "singularity" | "core" | "constellation" | "window-studio" | "app-library" | "about";
+
+let lastOverlay: OverlaySurface | null = null;
 
 export async function openOverlay(surface: OverlaySurface): Promise<void> {
   if (!isTauri()) return;
@@ -11,9 +13,16 @@ export async function openOverlay(surface: OverlaySurface): Promise<void> {
     import("@tauri-apps/api/event"),
     import("@tauri-apps/api/window"),
   ]);
-  await emit("gravity://overlay", { surface });
   const monitor = new URLSearchParams(window.location.search).get("monitor") ?? "0";
   const overlay = await Window.getByLabel(`overlay-${monitor}`);
+  if (overlay && (await overlay.isVisible()) && lastOverlay === surface) {
+    lastOverlay = null;
+    await emit("gravity://overlay", { surface: null });
+    await overlay.hide();
+    return;
+  }
+  lastOverlay = surface;
+  await emit("gravity://overlay", { surface });
   await overlay?.show();
   await overlay?.setFocus();
 }
@@ -24,15 +33,14 @@ export async function hideOverlaySelf(): Promise<void> {
   await getCurrentWindow().hide();
 }
 
-/** The Horizon strip window is only as tall as the bar; menus need room to
- *  drop below it. Grow the window while a menu is open, shrink after.
- *  (A transparent Tauri region still captures clicks, so the strip must
- *  stay short whenever no menu is open.) */
+/** The Horizon strip window is only as tall as the bar. Interactive menus
+ * receive an explicitly measured hit region; we never expand a transparent
+ * WebView over the whole monitor. */
 export const HORIZON_CLOSED_H = 34;
 export const ORBIT_CLOSED_H = 170;
 const ORBIT_OPEN_H = 360;
 
-export async function growHorizonWindow(open: boolean): Promise<void> {
+export async function growHorizonWindow(open: boolean, requestedHeight = 420): Promise<void> {
   if (!isTauri()) return;
   if (new URLSearchParams(window.location.search).get("surface") !== "horizon") return;
   const { getCurrentWindow, currentMonitor, LogicalSize } = await import("@tauri-apps/api/window");
@@ -41,7 +49,10 @@ export async function growHorizonWindow(open: boolean): Promise<void> {
   const size = await win.innerSize();
   const width = size.toLogical(scale).width;
   const monitor = open ? await currentMonitor() : null;
-  const height = monitor ? monitor.size.height / monitor.scaleFactor : HORIZON_CLOSED_H;
+  const monitorHeight = monitor ? monitor.size.height / monitor.scaleFactor : requestedHeight;
+  const height = open
+    ? Math.max(HORIZON_CLOSED_H, Math.min(requestedHeight, monitorHeight))
+    : HORIZON_CLOSED_H;
   await win.setSize(new LogicalSize(width, height));
 }
 

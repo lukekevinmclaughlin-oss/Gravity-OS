@@ -25,10 +25,13 @@ pub fn get_volume() -> Option<f32> {
     unsafe { with_endpoint(|e| e.GetMasterVolumeLevelScalar().unwrap_or(0.5)) }
 }
 
-pub fn set_volume(value: f32) {
+pub fn set_volume(value: f32) -> Result<(), String> {
     unsafe {
-        with_endpoint(|e| {
-            let _ = e.SetMasterVolumeLevelScalar(value, std::ptr::null());
-        });
+        with_endpoint(|endpoint| {
+            endpoint
+                .SetMasterVolumeLevelScalar(value, std::ptr::null())
+                .map_err(|error| error.to_string())
+        })
+        .ok_or_else(|| "No default audio output device is available".to_string())?
     }
 }

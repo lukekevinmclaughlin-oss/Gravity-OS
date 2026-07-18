@@ -9,21 +9,19 @@ import {
   SunIcon,
   VolumeIcon,
   WifiIcon,
+  WindowsIcon,
 } from "../components/Icons";
 import { growHorizonWindow } from "../lib/win";
 import type { WindowAction } from "../shell/types";
 import "./horizon.css";
 
-/** Horizon — a single full-width menu bar (spec §3).
- *  macOS grammar: menus open on mouse-down, appear instantly, and slide-track
- *  while one is open; the Gravity menu performs real session actions. */
-
 export interface HorizonProps {
   onOpenCore?: () => void;
   onOpenConstellation?: () => void;
   onOpenSingularity?: () => void;
-  onToggleTheme?: () => void;
+  onToggleTheme?: () => void | Promise<void>;
   onOpenWindowStudio?: () => void;
+  onOpenAbout?: () => void;
 }
 
 interface MenuItem {
@@ -31,77 +29,168 @@ interface MenuItem {
   hint?: string;
   disabled?: boolean;
   danger?: boolean;
-  action?: () => void;
+  announce?: boolean;
+  action?: () => void | Promise<unknown>;
 }
 type MenuEntry = MenuItem | "sep";
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 10_000);
-    return () => clearInterval(t);
+    const tick = () => setNow(new Date());
+    const timer = window.setInterval(tick, 10_000);
+    return () => window.clearInterval(timer);
   }, []);
   const date = now
-    .toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+    .toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
     .replace(",", "");
-  const time = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-  return `${date} ${time}`;
+  const time = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${date}  ${time}`;
 }
 
-export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, onToggleTheme, onOpenWindowStudio }: HorizonProps) {
+export function Horizon({
+  onOpenCore,
+  onOpenConstellation,
+  onOpenSingularity,
+  onToggleTheme,
+  onOpenWindowStudio,
+  onOpenAbout,
+}: HorizonProps) {
   const { state, actions } = useShell();
   const [open, setOpen] = useState<string | null>(null);
   const [confirmPower, setConfirmPower] = useState<"restart" | "shutdown" | null>(null);
-  const [windowError, setWindowError] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [shellBusy, setShellBusy] = useState(false);
   const openRef = useRef(open);
+  const targetRef = useRef<(typeof state.windows)[number] | undefined>(undefined);
   openRef.current = open;
   const clock = useClock();
 
-  // Menus drop below the 30px strip — grow the Tauri window while open.
+  const notify = (kind: "success" | "error", text: string, duration = 2800) => {
+    setMessage({ kind, text });
+    window.setTimeout(() => setMessage((current) => current?.text === text ? null : current), duration);
+  };
+
+  // Resize to the rendered popup only. The former monitor-height transparent
+  // window was able to swallow clicks from every application beneath it.
   useEffect(() => {
-    void growHorizonWindow(open !== null || confirmPower !== null);
+    if (!open && !confirmPower) {
+      void growHorizonWindow(false);
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const popup = document.querySelector<HTMLElement>(".hzMenu, .hzConfirm");
+      const needed = popup ? Math.ceil(popup.getBoundingClientRect().bottom + 10) : 420;
+      void growHorizonWindow(true, needed);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open, confirmPower]);
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(null);
+    if (!open && !confirmPower) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(null);
+        setConfirmPower(null);
+        return;
+      }
+      if (!open) return;
+      const items = [...document.querySelectorAll<HTMLButtonElement>(".hzMenu__item:not(:disabled)")];
+      if (!items.length) return;
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        items[(current + delta + items.length) % items.length].focus();
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        items[event.key === "Home" ? 0 : items.length - 1].focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [open, confirmPower]);
+
+  useEffect(() => {
+    const onBlur = () => {
+      setOpen(null);
+      setConfirmPower(null);
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>(".hzMenu__item:not(:disabled)")?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
-  const focusedWin = state.windows.find((w) => w.focused && !w.minimized);
-  const focusedApp = focusedWin ? state.apps.find((a) => a.id === focusedWin.appId) : undefined;
-  const appName = focusedApp?.name ?? "Gravity";
-  const appWindows = focusedApp ? state.windows.filter((w) => w.appId === focusedApp.id) : [];
+  const liveFocusedWin =
+    state.windows.find(
+      (window) =>
+        window.orbitId === state.activeOrbit && window.focused && !window.minimized
+    ) ??
+    state.windows.find(
+      (window) => window.orbitId === state.activeOrbit && !window.minimized
+    );
+  const activeWin = open ? targetRef.current ?? liveFocusedWin : liveFocusedWin;
+  const activeApp = activeWin ? state.apps.find((app) => app.id === activeWin.appId) : undefined;
+  const appName = activeApp?.name ?? "Gravity";
+  const appWindows = activeApp ? state.windows.filter((window) => window.appId === activeApp.id) : [];
 
-  const run = (fn?: () => void) => () => {
-    setOpen(null);
-    fn?.();
+  const execute = async (label: string, action: () => void | Promise<unknown>, announce = true) => {
+    try {
+      await action();
+      if (announce) notify("success", `${label} completed`);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : String(error), 5000);
+      throw error;
+    }
   };
 
-  const manage = (action: WindowAction) => () => {
-    void actions.windowAction(action).catch((error) => {
-      setWindowError(String(error));
-      window.setTimeout(() => setWindowError(null), 3500);
-    });
+  const invokeEntry = (entry: MenuItem) => async () => {
+    setOpen(null);
+    if (!entry.action) return;
+    try {
+      await execute(entry.label.replace("…", ""), entry.action, entry.announce !== false);
+    } catch {
+      // execute presents the actionable error in Horizon.
+    }
+  };
+
+  const manage = (action: WindowAction) => async () => {
+    if (!activeWin) throw new Error("Select an application window first.");
+    await actions.windowActionFor(activeWin.id, action);
+  };
+
+  const switchToWindows = async () => {
+    if (shellBusy) return;
+    setShellBusy(true);
+    try {
+      await actions.setShellActive(false);
+    } finally {
+      setShellBusy(false);
+    }
   };
 
   const gravityMenu: MenuEntry[] = [
-    { label: "About Gravity OS", disabled: true },
+    { label: "About Gravity OS", action: onOpenAbout, announce: false },
     "sep",
-    { label: "Settings…", action: () => actions.launchApp("settings") },
+    { label: "Settings…", action: () => actions.launchApp("settings"), announce: false },
     { label: "Empty Trash", action: actions.emptyTrash, disabled: !state.status.trashFull },
     "sep",
-    { label: "Sleep", action: () => actions.powerAction("sleep") },
-    { label: "Restart…", action: () => setConfirmPower("restart") },
-    { label: "Shut Down…", action: () => setConfirmPower("shutdown") },
+    { label: "Sleep", action: () => actions.powerAction("sleep"), announce: false },
+    { label: "Restart…", action: () => setConfirmPower("restart"), announce: false },
+    { label: "Shut Down…", action: () => setConfirmPower("shutdown"), announce: false },
     "sep",
-    { label: "Lock Screen", hint: "⊞L", action: () => actions.powerAction("lock") },
+    { label: "Lock Screen", hint: "⊞ L", action: () => actions.powerAction("lock"), announce: false },
     "sep",
-    { label: "Switch to Windows 11", action: () => actions.setShellActive(false) },
-    { label: "Quit Gravity OS", danger: true, action: () => actions.quitShell() },
+    { label: "Switch to Windows 11", hint: "Ctrl Alt G", action: switchToWindows, announce: false },
+    { label: "Quit Gravity OS", danger: true, action: actions.quitShell, announce: false },
   ];
 
   const menus: Array<{ title: string; entries: MenuEntry[] }> = [
@@ -111,67 +200,68 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
         {
           label: `Hide ${appName}`,
           disabled: appWindows.length === 0,
-          action: () => appWindows.forEach((w) => actions.minimizeWindow(w.id)),
+          action: () => Promise.all(appWindows.map((window) => actions.minimizeWindow(window.id))),
         },
         {
           label: `Quit ${appName}`,
           disabled: appWindows.length === 0,
           danger: true,
-          action: () => appWindows.forEach((w) => actions.closeWindow(w.id)),
+          action: () => Promise.all(appWindows.map((window) => actions.closeWindow(window.id))),
         },
       ],
     },
     {
       title: "File",
       entries: [
-        { label: "New Window", action: focusedApp ? () => actions.launchApp(focusedApp.id) : undefined, disabled: !focusedApp },
-        { label: "Close Window", hint: "Ctrl W", action: focusedWin ? () => actions.closeWindow(focusedWin.id) : undefined, disabled: !focusedWin },
+        { label: "New Window", action: activeApp ? () => actions.launchApp(activeApp.id) : undefined, disabled: !activeApp },
+        { label: "Close Window", hint: "Ctrl W", action: activeWin ? () => actions.closeWindow(activeWin.id) : undefined, disabled: !activeWin },
       ],
     },
     {
       title: "Edit",
       entries: [
-        { label: "Undo", hint: "Ctrl Z", action: () => actions.editAction("undo"), disabled: !focusedWin },
-        { label: "Redo", hint: "Ctrl Y", action: () => actions.editAction("redo"), disabled: !focusedWin },
+        { label: "Undo", hint: "Ctrl Z", action: () => actions.editAction("undo", activeWin?.id), disabled: !activeWin },
+        { label: "Redo", hint: "Ctrl Y", action: () => actions.editAction("redo", activeWin?.id), disabled: !activeWin },
         "sep",
-        { label: "Cut", hint: "Ctrl X", action: () => actions.editAction("cut"), disabled: !focusedWin },
-        { label: "Copy", hint: "Ctrl C", action: () => actions.editAction("copy"), disabled: !focusedWin },
-        { label: "Paste", hint: "Ctrl V", action: () => actions.editAction("paste"), disabled: !focusedWin },
+        { label: "Cut", hint: "Ctrl X", action: () => actions.editAction("cut", activeWin?.id), disabled: !activeWin },
+        { label: "Copy", hint: "Ctrl C", action: () => actions.editAction("copy", activeWin?.id), disabled: !activeWin },
+        { label: "Paste", hint: "Ctrl V", action: () => actions.editAction("paste", activeWin?.id), disabled: !activeWin },
         "sep",
-        { label: "Select All", hint: "Ctrl A", action: () => actions.editAction("select-all"), disabled: !focusedWin },
+        { label: "Select All", hint: "Ctrl A", action: () => actions.editAction("select-all", activeWin?.id), disabled: !activeWin },
       ],
     },
     {
       title: "Window",
       entries: [
-        { label: "Window Studio…", action: onOpenWindowStudio },
+        { label: "Window Studio…", action: onOpenWindowStudio, announce: false },
         "sep",
-        { label: "Minimize", action: focusedWin ? () => actions.minimizeWindow(focusedWin.id) : undefined, disabled: !focusedWin },
-        { label: "Undo Gravity Move", hint: "Ctrl Alt Z", action: focusedWin ? manage("undo") : undefined, disabled: !focusedWin },
-        { label: "Restore Original Size", action: focusedWin ? manage("restore") : undefined, disabled: !focusedWin },
+        { label: "Minimize", action: activeWin ? () => actions.minimizeWindow(activeWin.id) : undefined, disabled: !activeWin },
+        { label: "Undo Gravity Move", hint: "Ctrl Alt Z", action: activeWin ? manage("undo") : undefined, disabled: !activeWin },
+        { label: "Restore Original Size", action: activeWin ? manage("restore") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Move to Left Half", hint: "Ctrl Alt ←", action: focusedWin ? manage("left-half") : undefined, disabled: !focusedWin },
-        { label: "Move to Right Half", hint: "Ctrl Alt →", action: focusedWin ? manage("right-half") : undefined, disabled: !focusedWin },
-        { label: "Move to Top Half", hint: "Ctrl Alt ↑", action: focusedWin ? manage("top-half") : undefined, disabled: !focusedWin },
-        { label: "Move to Bottom Half", hint: "Ctrl Alt ↓", action: focusedWin ? manage("bottom-half") : undefined, disabled: !focusedWin },
-        { label: "Maximize", hint: "Ctrl Alt Enter", action: focusedWin ? manage("maximize") : undefined, disabled: !focusedWin },
-        { label: "Center", action: focusedWin ? manage("center") : undefined, disabled: !focusedWin },
+        { label: "Move to Left Half", hint: "Ctrl Alt ←", action: activeWin ? manage("left-half") : undefined, disabled: !activeWin },
+        { label: "Move to Right Half", hint: "Ctrl Alt →", action: activeWin ? manage("right-half") : undefined, disabled: !activeWin },
+        { label: "Move to Top Half", hint: "Ctrl Alt ↑", action: activeWin ? manage("top-half") : undefined, disabled: !activeWin },
+        { label: "Move to Bottom Half", hint: "Ctrl Alt ↓", action: activeWin ? manage("bottom-half") : undefined, disabled: !activeWin },
+        { label: "Maximize", hint: "Ctrl Alt Enter", action: activeWin ? manage("maximize") : undefined, disabled: !activeWin },
+        { label: "Center", action: activeWin ? manage("center") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Previous Display", hint: "Ctrl Alt Shift ←", action: focusedWin ? manage("previous-display") : undefined, disabled: !focusedWin },
-        { label: "Next Display", hint: "Ctrl Alt Shift →", action: focusedWin ? manage("next-display") : undefined, disabled: !focusedWin },
+        { label: "Previous Display", hint: "Ctrl Alt Shift ←", action: activeWin ? manage("previous-display") : undefined, disabled: !activeWin },
+        { label: "Next Display", hint: "Ctrl Alt Shift →", action: activeWin ? manage("next-display") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Pair with Previous Window", action: focusedWin ? manage("pair-previous") : undefined, disabled: !focusedWin },
-        { label: "Tile This Application", action: focusedWin ? manage("tile-app") : undefined, disabled: !focusedWin },
-        { label: "Arrange This Display", action: focusedWin ? manage("arrange-display") : undefined, disabled: !focusedWin },
-        { label: "Cascade This Display", action: focusedWin ? manage("cascade") : undefined, disabled: !focusedWin },
-        { label: "Gather All Windows Here", action: focusedWin ? manage("gather-all") : undefined, disabled: !focusedWin },
+        { label: "Pair with Previous Window", action: activeWin ? manage("pair-previous") : undefined, disabled: !activeWin },
+        { label: "Tile This Application", action: activeWin ? manage("tile-app") : undefined, disabled: !activeWin },
+        { label: "Arrange This Display", action: activeWin ? manage("arrange-display") : undefined, disabled: !activeWin },
+        { label: "Cascade This Display", action: activeWin ? manage("cascade") : undefined, disabled: !activeWin },
+        { label: "Gather All Windows Here", action: activeWin ? manage("gather-all") : undefined, disabled: !activeWin },
         "sep",
-        { label: "Constellation", hint: "F3", action: onOpenConstellation },
+        { label: "Constellation", hint: "F3", action: onOpenConstellation, announce: false },
         { label: "Toggle Daybreak", action: onToggleTheme },
         ...(state.windows.length ? ["sep" as const] : []),
-        ...state.windows.map<MenuEntry>((w) => ({
-          label: w.title.length > 34 ? w.title.slice(0, 33) + "…" : w.title,
-          action: () => actions.focusWindow(w.id),
+        ...state.windows.map<MenuEntry>((window) => ({
+          label: window.title.length > 34 ? `${window.title.slice(0, 33)}…` : window.title,
+          action: () => actions.focusWindow(window.id),
+          announce: false,
         })),
       ],
     },
@@ -179,107 +269,114 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
 
   const renderMenu = (entries: MenuEntry[], alignRight = false) => (
     <div className={`hzMenu glass-heavy ${alignRight ? "hzMenu--right" : ""}`} role="menu">
-      {entries.map((entry, i) =>
-        entry === "sep" ? (
-          <div className="hzMenu__sep" key={`s${i}`} />
-        ) : (
-          <button
-            key={entry.label + i}
-            className={`hzMenu__item ${entry.danger ? "is-danger" : ""}`}
-            disabled={entry.disabled || !entry.action}
-            onClick={run(entry.action)}
-          >
-            <span>{entry.label}</span>
-            {entry.hint && <span className="hzMenu__hint">{entry.hint}</span>}
-          </button>
-        )
-      )}
+      {entries.map((entry, index) => entry === "sep" ? (
+        <div className="hzMenu__sep" role="separator" key={`separator-${index}`} />
+      ) : (
+        <button
+          key={`${entry.label}-${index}`}
+          className={`hzMenu__item ${entry.danger ? "is-danger" : ""}`}
+          disabled={entry.disabled || !entry.action}
+          role="menuitem"
+          onClick={invokeEntry(entry)}
+        >
+          <span>{entry.label}</span>
+          {entry.hint && <span className="hzMenu__hint">{entry.hint}</span>}
+        </button>
+      ))}
     </div>
   );
 
-  // Mouse-down open + slide-track (spec §3): press opens; while any menu is
-  // open, entering an adjacent title switches without another press.
-  // On Windows the strip window must grow *before* the first menu renders,
-  // or the dropdown clips to the 34px bar for a frame.
   const openMenu = (key: string | null) => {
-    if (key && openRef.current === null) {
-      void growHorizonWindow(true).then(() => setOpen(key));
-    } else {
-      setOpen(key);
-    }
+    if (key && !openRef.current) targetRef.current = liveFocusedWin;
+    setOpen(key);
   };
+
   const titleProps = (key: string) => ({
-    onMouseDown: (e: React.MouseEvent) => {
-      e.preventDefault();
-      openMenu(openRef.current === key ? null : key);
+    onPointerDown: () => {
+      if (!openRef.current) targetRef.current = liveFocusedWin;
     },
+    onClick: () => openMenu(openRef.current === key ? null : key),
     onMouseEnter: () => {
       if (openRef.current && openRef.current !== key) setOpen(key);
     },
+    "aria-haspopup": "menu" as const,
+    "aria-expanded": open === key,
   });
 
   const battery = state.status.batteryPercent;
+  const runStatus = (label: string, action: () => void | Promise<unknown>) => {
+    void execute(label, action).catch(() => undefined);
+  };
 
   return (
     <div className="horizon">
       {(open || confirmPower) && (
-        <div
+        <button
           className="horizon__scrim"
-          onMouseDown={() => {
+          aria-label="Close menu"
+          onPointerDown={() => {
             setOpen(null);
             setConfirmPower(null);
           }}
         />
       )}
 
-      <div className="horizon__bar glass">
+      <div className="horizon__bar glass" role="menubar" aria-label="Gravity menu bar">
         <span className="horizon__anchor">
           <button
             className={`horizon__gravity ${open === "gravity" ? "is-open" : ""}`}
             {...titleProps("gravity")}
             title="Gravity"
+            role="menuitem"
           >
             <GravityMark size={16} />
           </button>
           {open === "gravity" && renderMenu(gravityMenu)}
         </span>
 
-        <span className="horizon__anchor">
-          <button className={`horizon__menuBtn horizon__app ${open === menus[0].title ? "is-open" : ""}`} {...titleProps(menus[0].title)}>
-            {appName}
-          </button>
-          {open === menus[0].title && renderMenu(menus[0].entries)}
-        </span>
-        {menus.slice(1).map((m) => (
-          <span className="horizon__anchor" key={m.title}>
-            <button className={`horizon__menuBtn ${open === m.title ? "is-open" : ""}`} {...titleProps(m.title)}>
-              {m.title}
+        {menus.map((menu) => (
+          <span className="horizon__anchor" key={menu.title}>
+            <button
+              className={`horizon__menuBtn ${menu.title === appName ? "horizon__app" : ""} ${open === menu.title ? "is-open" : ""}`}
+              {...titleProps(menu.title)}
+              role="menuitem"
+            >
+              {menu.title}
             </button>
-            {open === m.title && renderMenu(m.entries)}
+            {open === menu.title && renderMenu(menu.entries)}
           </span>
         ))}
 
         <span className="horizon__spacer" />
 
         <button
-          title={`Switch to ${state.appearance.resolved === "light" ? "dark" : "light"} appearance`}
-          className="horizon__status horizon__appearance"
-          onClick={onToggleTheme}
+          className="horizon__shellToggle"
+          onClick={() => runStatus("Switch to Windows 11", switchToWindows)}
+          disabled={shellBusy}
+          title="Switch to the normal Windows 11 interface (Ctrl+Alt+G to return)"
         >
-          <SunIcon size={14.5} />
+          <WindowsIcon size={13} />
+          <span>{shellBusy ? "Switching…" : "Windows 11"}</span>
         </button>
 
         <button
+          title={`Switch to ${state.appearance.resolved === "light" ? "dark" : "light"} appearance`}
+          className="horizon__status horizon__appearance"
+          onClick={() => onToggleTheme && runStatus("Appearance", onToggleTheme)}
+        >
+          <SunIcon size={14.5} />
+        </button>
+        <button
           title="Focus"
           className={`horizon__status ${state.status.focus ? "is-on" : ""}`}
-          onClick={() => void actions.toggleSetting("focus").catch((error) => setWindowError(String(error)))}
+          onClick={() => runStatus("Focus", () => actions.toggleSetting("focus"))}
         >
           <MoonIcon size={14.5} />
         </button>
         <button
           title={state.status.network ?? "Offline"}
           className={`horizon__status ${state.status.online ? "" : "is-off"}`}
-          onClick={() => void actions.toggleSetting("wifi").catch((error) => setWindowError(String(error)))}
+          onClick={() => runStatus("Wi-Fi", () => actions.toggleSetting("wifi"))}
         >
           <WifiIcon size={15} />
         </button>
@@ -298,28 +395,22 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
         <button className="horizon__status" onClick={onOpenCore} title="Core">
           <VolumeIcon size={15} level={state.status.volume} />
         </button>
-        <button className="horizon__clock" onClick={onOpenCore}>
+        <button className="horizon__clock" onClick={onOpenCore} title="Date, time and system controls">
           {clock}
         </button>
       </div>
 
       {confirmPower && (
-        <div className="hzConfirm glass-heavy">
-          <p>
-            {confirmPower === "restart"
-              ? "Restart this PC now?"
-              : "Shut down this PC now?"}
-          </p>
+        <div className="hzConfirm glass-heavy" role="alertdialog" aria-modal="true" aria-label={`${confirmPower} confirmation`}>
+          <p>{confirmPower === "restart" ? "Restart this PC now?" : "Shut down this PC now?"}</p>
           <div className="hzConfirm__row">
-            <button className="hzConfirm__cancel" onClick={() => setConfirmPower(null)}>
-              Cancel
-            </button>
+            <button className="hzConfirm__cancel" onClick={() => setConfirmPower(null)}>Cancel</button>
             <button
               className="hzConfirm__go"
               onClick={() => {
                 const kind = confirmPower;
                 setConfirmPower(null);
-                actions.powerAction(kind);
+                runStatus(kind === "restart" ? "Restart" : "Shut down", () => actions.powerAction(kind));
               }}
             >
               {confirmPower === "restart" ? "Restart" : "Shut Down"}
@@ -327,7 +418,16 @@ export function Horizon({ onOpenCore, onOpenConstellation, onOpenSingularity, on
           </div>
         </div>
       )}
-      {windowError && <div className="hzToast glass-heavy" role="alert">{windowError}</div>}
+
+      {message && (
+        <button
+          className={`hzToast glass-heavy is-${message.kind}`}
+          role={message.kind === "error" ? "alert" : "status"}
+          onClick={() => setMessage(null)}
+        >
+          {message.text}
+        </button>
+      )}
     </div>
   );
 }

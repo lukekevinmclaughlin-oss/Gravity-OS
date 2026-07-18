@@ -185,6 +185,24 @@ impl Default for WindowingState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShellMode {
+    Windows,
+    EnteringGravity,
+    #[default]
+    Gravity,
+    LeavingGravity,
+    Faulted,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellTransitionResult {
+    pub mode: ShellMode,
+    pub active: bool,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellState {
@@ -196,4 +214,5 @@ pub struct ShellState {
     pub notifications: Vec<PulseNote>,
     pub appearance: AppearanceState,
     pub windowing: WindowingState,
+    pub shell_mode: ShellMode,
 }

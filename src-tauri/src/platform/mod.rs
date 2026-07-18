@@ -9,9 +9,9 @@ pub trait ShellPlatform: Send + Sync {
     fn snapshot(&self) -> ShellState;
 
     // Window control
-    fn focus_window(&self, id: &str);
-    fn minimize_window(&self, id: &str);
-    fn close_window(&self, id: &str);
+    fn focus_window(&self, id: &str) -> Result<(), String>;
+    fn minimize_window(&self, id: &str) -> Result<(), String>;
+    fn close_window(&self, id: &str) -> Result<(), String>;
     fn window_action(&self, action: &str) -> Result<(), String>;
     fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String>;
     fn configure_windowing(&self, gap: u32, cycling: bool);
@@ -23,15 +23,15 @@ pub trait ShellPlatform: Send + Sync {
     fn launch_app(&self, app_id: &str) -> Result<(), String>;
 
     // System
-    fn set_volume(&self, value: f32);
+    fn set_volume(&self, value: f32) -> Result<(), String>;
     fn set_brightness(&self, value: f32) -> Result<(), String>;
     fn toggle_setting(&self, key: &str) -> Result<(), String>;
-    fn empty_trash(&self);
+    fn empty_trash(&self) -> Result<(), String>;
 
     // Spaces & notifications (managed shell-side)
-    fn switch_orbit(&self, id: &str);
+    fn switch_orbit(&self, id: &str) -> Result<(), String>;
     fn move_window_to_orbit(&self, window_id: &str, orbit_id: &str) -> Result<(), String>;
-    fn dismiss_notification(&self, id: &str);
+    fn dismiss_notification(&self, id: &str) -> Result<(), String>;
 
     /// Take over the desktop: hide the Windows taskbar and reserve the work
     /// area for Horizon/Orbit. Returns immediately on non-Windows.

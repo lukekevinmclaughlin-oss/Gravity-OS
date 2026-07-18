@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import { mulberry32 } from "../lib/rng";
 import { WALLPAPERS, wallpaperSource } from "../lib/wallpapers";
 import { useShell } from "../shell/context";
 import type { AppearanceMode } from "../shell/types";
+import { WindowsIcon } from "../components/Icons";
 import "./deepfield.css";
 
 /** Deep Field — Gravity's live generative wallpaper.
@@ -35,6 +36,7 @@ function LiveDeepField({ light }: { light: boolean }) {
     let h = 0;
     let dpr = 1;
     let stars: Star[] = [];
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const base = document.createElement("canvas"); // sky + lensing rings
     const aurora = document.createElement("canvas"); // slow-drift ribbons
@@ -125,7 +127,7 @@ function LiveDeepField({ light }: { light: boolean }) {
     };
 
     const draw = (now: number) => {
-      raf = requestAnimationFrame(draw);
+      if (!reducedMotion) raf = requestAnimationFrame(draw);
       if (now - last < 33) return; // ~30fps is plenty for a sky
       last = now;
       const t = now / 1000;
@@ -152,12 +154,22 @@ function LiveDeepField({ light }: { light: boolean }) {
       ctx.drawImage(vignette, 0, 0, w, h);
     };
 
+    const syncVisibility = () => {
+      cancelAnimationFrame(raf);
+      if (!document.hidden) {
+        last = performance.now();
+        raf = requestAnimationFrame(draw);
+      }
+    };
+
     resize();
     window.addEventListener("resize", resize);
-    raf = requestAnimationFrame(draw);
+    document.addEventListener("visibilitychange", syncVisibility);
+    if (!document.hidden) raf = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", syncVisibility);
     };
   }, [light]);
 
@@ -177,6 +189,7 @@ interface DesktopMenuState {
 export function DeepField() {
   const { state, actions } = useShell();
   const [menu, setMenu] = useState<DesktopMenuState | null>(null);
+  const [menuError, setMenuError] = useState<string | null>(null);
   const selected =
     WALLPAPERS.find((wallpaper) => wallpaper.id === state.appearance.wallpaperId) ?? WALLPAPERS[0];
   const source = wallpaperSource(selected, state.appearance.resolved);
@@ -194,17 +207,34 @@ export function DeepField() {
     event.preventDefault();
     setMenu({
       x: Math.max(8, Math.min(event.clientX, window.innerWidth - 340)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 330)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 560)),
     });
   };
 
+  const openKeyboardMenu = (event: ReactKeyboardEvent) => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault();
+    setMenu({ x: 16, y: 48 });
+  };
+
   const chooseAppearance = async (mode: AppearanceMode) => {
-    await actions.setAppearance(mode);
-    setMenu(null);
+    try {
+      await actions.setAppearance(mode);
+      setMenu(null);
+    } catch (error) {
+      setMenuError(String(error));
+    }
   };
 
   return (
-    <div className="deepField" onContextMenu={openMenu}>
+    <div
+      className="deepField"
+      role="region"
+      aria-label="Gravity desktop"
+      tabIndex={0}
+      onKeyDown={openKeyboardMenu}
+      onContextMenu={openMenu}
+    >
       {source ? (
         <div className="deepField__image" style={{ backgroundImage: `url(${source})` }} />
       ) : (
@@ -247,8 +277,9 @@ export function DeepField() {
                     role="menuitemradio"
                     aria-checked={wallpaper.id === selected.id}
                     onClick={() => {
-                      void actions.setWallpaper(wallpaper.id);
-                      setMenu(null);
+                      void actions.setWallpaper(wallpaper.id)
+                        .then(() => setMenu(null))
+                        .catch((error) => setMenuError(String(error)));
                     }}
                   >
                     <span
@@ -266,6 +297,26 @@ export function DeepField() {
                 );
               })}
             </div>
+
+            <div className="desktopMenu__heading">System</div>
+            <button
+              className="desktopMenu__windows"
+              role="menuitem"
+              onClick={() => {
+                setMenuError(null);
+                void actions.setShellActive(false)
+                  .then(() => setMenu(null))
+                  .catch((error) => setMenuError(String(error)));
+              }}
+            >
+              <span className="desktopMenu__windowsIcon"><WindowsIcon size={16} /></span>
+              <span><strong>Switch to Windows 11</strong><small>Return with Ctrl Alt G or the Gravity tray icon</small></span>
+            </button>
+            {menuError && (
+              <button className="desktopMenu__error" role="alert" onClick={() => setMenuError(null)}>
+                {menuError}
+              </button>
+            )}
           </div>
         </>
       )}

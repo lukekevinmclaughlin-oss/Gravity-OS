@@ -16,6 +16,7 @@ export function Constellation({ open, onClose }: ConstellationProps) {
   const { state, actions } = useShell();
   const [draggedWindow, setDraggedWindow] = useState<string | null>(null);
   const [dropOrbit, setDropOrbit] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   if (!open) return null;
 
   const wins = state.windows.filter((w) => w.orbitId === state.activeOrbit);
@@ -33,7 +34,10 @@ export function Constellation({ open, onClose }: ConstellationProps) {
           <button
             key={o.id}
             className={`constel__orbitPill glass ${o.id === state.activeOrbit ? "is-active" : ""} ${dropOrbit === o.id ? "is-drop" : ""}`}
-            onClick={() => actions.switchOrbit(o.id)}
+            onClick={() => {
+              setError(null);
+              void actions.switchOrbit(o.id).catch((reason) => setError(String(reason)));
+            }}
             onDragOver={(event) => {
               if (!draggedWindow) return;
               event.preventDefault();
@@ -46,7 +50,10 @@ export function Constellation({ open, onClose }: ConstellationProps) {
               const windowId = draggedWindow ?? event.dataTransfer.getData("application/x-gravity-window");
               setDropOrbit(null);
               setDraggedWindow(null);
-              if (windowId) void actions.moveWindowToOrbit(windowId, o.id);
+              if (windowId) {
+                setError(null);
+                void actions.moveWindowToOrbit(windowId, o.id).catch((reason) => setError(String(reason)));
+              }
             }}
           >
             {o.name}
@@ -72,14 +79,10 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                   const mid = (groupWins.length - 1) / 2;
                   const fan = (i - mid) * 1.6;
                   return (
-                    <button
+                    <div
                       key={w.id}
                       className={`constel__card glass lens ${w.minimized ? "is-min" : ""}`}
                       style={{ transform: `rotate(${fan}deg) translateY(${Math.abs(i - mid) * 5}px)` }}
-                      onClick={() => {
-                        actions.focusWindow(w.id);
-                        onClose();
-                      }}
                       draggable
                       onDragStart={(event) => {
                         setDraggedWindow(w.id);
@@ -91,29 +94,41 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                         setDropOrbit(null);
                       }}
                     >
-                      <span className="constel__cardHead">
-                        <span className="constel__cardTitle">{w.title}</span>
-                        <span
-                          className="constel__cardClose"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            actions.closeWindow(w.id);
-                          }}
-                        >
-                          <CloseIcon size={11} />
-                        </span>
-                      </span>
-                      <span
-                        className="constel__cardBody"
-                        style={{
-                          background: `linear-gradient(155deg,
-                            hsl(${app.hue} 40% 22% / 0.85),
-                            hsl(${(app.hue + 42) % 360} 45% 12% / 0.9))`,
+                      <button
+                        className="constel__cardOpen"
+                        aria-label={`Open ${w.title}`}
+                        onClick={() => {
+                          setError(null);
+                          void actions.focusWindow(w.id)
+                            .then(onClose)
+                            .catch((reason) => setError(String(reason)));
                         }}
                       >
-                        <AppTile name={app.name} hue={app.hue} size={34} appId={app.id} />
-                      </span>
-                    </button>
+                        <span className="constel__cardHead">
+                          <span className="constel__cardTitle">{w.title}</span>
+                        </span>
+                        <span
+                          className="constel__cardBody"
+                          style={{
+                            background: `linear-gradient(155deg,
+                              hsl(${app.hue} 40% 22% / 0.85),
+                              hsl(${(app.hue + 42) % 360} 45% 12% / 0.9))`,
+                          }}
+                        >
+                          <AppTile name={app.name} hue={app.hue} size={34} appId={app.id} />
+                        </span>
+                      </button>
+                      <button
+                        className="constel__cardClose"
+                        aria-label={`Close ${w.title}`}
+                        onClick={() => {
+                          setError(null);
+                          void actions.closeWindow(w.id).catch((reason) => setError(String(reason)));
+                        }}
+                      >
+                        <CloseIcon size={11} />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -122,6 +137,7 @@ export function Constellation({ open, onClose }: ConstellationProps) {
         })}
         {wins.length === 0 && <div className="constel__empty">Nothing in this orbit yet</div>}
       </div>
+      {error && <button className="constel__error glass-heavy" role="alert" onClick={() => setError(null)}>{error}</button>}
     </div>
   );
 }

@@ -20,7 +20,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, PostMessageW,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, PostMessageW,
     SetForegroundWindow, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_MINIMIZE, SW_RESTORE,
     SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WM_CLOSE, WS_EX_TOOLWINDOW,
 };
@@ -278,41 +278,49 @@ impl ShellPlatform for WindowsPlatform {
             notifications: inner.notifications.clone(),
             appearance: AppearanceState::default(),
             windowing: WindowingState::default(),
+            shell_mode: crate::shell::ShellMode::Gravity,
         }
     }
 
-    fn focus_window(&self, id: &str) {
-        if let Some(hwnd) = id_to_hwnd(id) {
-            let orbit = self
-                .inner
-                .lock()
-                .window_orbits
-                .get(&(hwnd.0 as isize))
-                .cloned();
-            if let Some(orbit) = orbit {
-                self.switch_orbit(&orbit);
-            }
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-                let _ = SetForegroundWindow(hwnd);
+    fn focus_window(&self, id: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        if !unsafe { IsWindow(hwnd) }.as_bool() {
+            return Err("That window is no longer available".into());
+        }
+        let orbit = self
+            .inner
+            .lock()
+            .window_orbits
+            .get(&(hwnd.0 as isize))
+            .cloned();
+        if let Some(orbit) = orbit {
+            self.switch_orbit(&orbit)?;
+        }
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            if !SetForegroundWindow(hwnd).as_bool() {
+                return Err("Windows did not allow Gravity to activate that window".into());
             }
         }
+        Ok(())
     }
 
-    fn minimize_window(&self, id: &str) {
-        if let Some(hwnd) = id_to_hwnd(id) {
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_MINIMIZE);
-            }
+    fn minimize_window(&self, id: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        if !unsafe { IsWindow(hwnd) }.as_bool() {
+            return Err("That window is no longer available".into());
         }
+        unsafe { let _ = ShowWindow(hwnd, SW_MINIMIZE); }
+        Ok(())
     }
 
-    fn close_window(&self, id: &str) {
-        if let Some(hwnd) = id_to_hwnd(id) {
-            unsafe {
-                let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+    fn close_window(&self, id: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        if !unsafe { IsWindow(hwnd) }.as_bool() {
+            return Err("That window is no longer available".into());
         }
+        unsafe { PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)) }
+            .map_err(|error| error.to_string())
     }
 
     fn window_action(&self, action: &str) -> Result<(), String> {
@@ -419,8 +427,8 @@ impl ShellPlatform for WindowsPlatform {
         appindex::launch(app_id)
     }
 
-    fn set_volume(&self, value: f32) {
-        audio::set_volume(value.clamp(0.0, 1.0));
+    fn set_volume(&self, value: f32) -> Result<(), String> {
+        audio::set_volume(value.clamp(0.0, 1.0))
     }
 
     fn set_brightness(&self, value: f32) -> Result<(), String> {
@@ -448,20 +456,24 @@ impl ShellPlatform for WindowsPlatform {
         Ok(())
     }
 
-    fn empty_trash(&self) {
+    fn empty_trash(&self) -> Result<(), String> {
         unsafe {
-            let _ = SHEmptyRecycleBinW(
+            SHEmptyRecycleBinW(
                 HWND(std::ptr::null_mut()),
                 PCWSTR::null(),
                 SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND,
-            );
+            )
         }
+        .map_err(|error| error.to_string())
     }
 
-    fn switch_orbit(&self, id: &str) {
+    fn switch_orbit(&self, id: &str) -> Result<(), String> {
         let mut inner = self.inner.lock();
-        if !inner.orbits.iter().any(|orbit| orbit.id == id) || inner.active_orbit == id {
-            return;
+        if !inner.orbits.iter().any(|orbit| orbit.id == id) {
+            return Err("That Orbit does not exist".into());
+        }
+        if inner.active_orbit == id {
+            return Ok(());
         }
         let windows = live_windows(&mut inner);
         let mut focus_target = None;
@@ -490,6 +502,7 @@ impl ShellPlatform for WindowsPlatform {
                 let _ = SetForegroundWindow(hwnd);
             }
         }
+        Ok(())
     }
 
     fn move_window_to_orbit(&self, window_id: &str, orbit_id: &str) -> Result<(), String> {
@@ -512,9 +525,10 @@ impl ShellPlatform for WindowsPlatform {
         Ok(())
     }
 
-    fn dismiss_notification(&self, id: &str) {
-        let _ = notifications::dismiss(id);
+    fn dismiss_notification(&self, id: &str) -> Result<(), String> {
+        notifications::dismiss(id)?;
         self.inner.lock().notifications.retain(|n| n.id != id);
+        Ok(())
     }
 
     fn engage_shell(&self) {

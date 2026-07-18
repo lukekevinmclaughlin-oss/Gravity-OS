@@ -41,27 +41,36 @@ export function AppLibrary({ open, onClose }: AppLibraryProps) {
       .finally(() => setBusy(null));
   };
 
+  const togglePinned = (appId: string, pinned: boolean) => {
+    setBusy(`pin-${appId}`);
+    setError(null);
+    void actions.setAppPinned(appId, pinned)
+      .catch((reason) => setError(String(reason)))
+      .finally(() => setBusy(null));
+  };
+
   return (
     <div className="appLibrary" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="appLibrary__top">
         <h1>Applications</h1>
-        <label className="appLibrary__search glass-heavy">
+        <div className="appLibrary__search glass-heavy">
           <SearchIcon size={16} />
           <input
             ref={input}
             value={query}
+            aria-label="Search installed applications"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === "Escape" && onClose()}
             placeholder="Search installed applications"
           />
           {query && <button onClick={() => setQuery("")} aria-label="Clear search">×</button>}
-        </label>
+        </div>
         <button className="appLibrary__close glass" onClick={onClose}>Done</button>
       </div>
 
       <div className="appLibrary__grid">
         {apps.map((app) => (
-          <article key={app.id} className={busy === app.id ? "is-busy" : ""}>
+          <article key={app.id} className={busy === app.id || busy === `pin-${app.id}` ? "is-busy" : ""}>
             <button className="appLibrary__launch" onClick={() => launch(app.id)} disabled={busy !== null}>
               <span className="appLibrary__tile"><AppTile name={app.name} hue={app.hue} appId={app.id} fill /></span>
               <span>{app.name}</span>
@@ -70,7 +79,8 @@ export function AppLibrary({ open, onClose }: AppLibraryProps) {
               className={`appLibrary__pin ${app.pinned ? "is-pinned" : ""}`}
               aria-label={app.pinned ? `Remove ${app.name} from Orbit` : `Keep ${app.name} in Orbit`}
               title={app.pinned ? "Remove from Orbit" : "Keep in Orbit"}
-              onClick={() => void actions.setAppPinned(app.id, !app.pinned)}
+              onClick={() => togglePinned(app.id, !app.pinned)}
+              disabled={busy !== null}
             >
               {app.pinned ? "●" : "+"}
             </button>

@@ -2,10 +2,12 @@
 //! window by sending the standard Ctrl chords (spec §3).
 //! `#[cfg(windows)]` only.
 
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_A, VK_C, VK_CONTROL, VK_V, VK_X, VK_Y, VK_Z,
 };
+use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE};
 
 fn key(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
     INPUT {
@@ -40,8 +42,30 @@ pub fn edit_chord(kind: &str) -> Result<(), String> {
         key(vk, KEYEVENTF_KEYUP),
         key(VK_CONTROL, KEYEVENTF_KEYUP),
     ];
-    unsafe {
-        SendInput(&seq, std::mem::size_of::<INPUT>() as i32);
+    let sent = unsafe { SendInput(&seq, std::mem::size_of::<INPUT>() as i32) };
+    if sent != seq.len() as u32 {
+        return Err(format!("Windows accepted only {sent} of {} input events", seq.len()));
     }
     Ok(())
+}
+
+/// Restore and target a specific foreign window before sending the chord.
+/// Horizon becomes interactive while a menu is open, so relying on the
+/// ambient foreground window would otherwise send Edit commands to Gravity.
+pub fn edit_chord_for(window_id: &str, kind: &str) -> Result<(), String> {
+    let raw = window_id
+        .parse::<isize>()
+        .map_err(|_| "Invalid window identifier".to_string())?;
+    let hwnd = HWND(raw as *mut std::ffi::c_void);
+    if !unsafe { IsWindow(hwnd) }.as_bool() {
+        return Err("That application window is no longer available".into());
+    }
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_RESTORE);
+        if !SetForegroundWindow(hwnd).as_bool() {
+            return Err("Windows did not allow Gravity to reactivate the target application".into());
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_millis(35));
+    edit_chord(kind)
 }

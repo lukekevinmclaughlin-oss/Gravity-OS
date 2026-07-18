@@ -81,6 +81,29 @@
 .horizon__status.is-off {
   opacity: 0.4;
 }
+.horizon__shellToggle {
+  height: 24px !important;
+  margin-right: 5px;
+  padding: 0 10px !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--glass-border));
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--accent) 11%, var(--glass-bg-lift));
+  color: var(--ink-dim) !important;
+  transition: background var(--t-light), color var(--t-light), transform var(--t-light);
+}
+.horizon__shellToggle:hover,
+.horizon__shellToggle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 22%, var(--glass-bg-lift)) !important;
+  color: var(--ink) !important;
+  outline: none;
+  box-shadow: var(--ring);
+}
+.horizon__shellToggle:active {
+  transform: scale(.97);
+}
+.horizon__shellToggle:disabled {
+  opacity: .55;
+}
 .horizon__batt span {
   font: 500 var(--text-cap) var(--font-ui);
   font-variant-numeric: tabular-nums;
@@ -123,6 +146,11 @@
 .hzMenu__item:hover:not(:disabled) {
   background: var(--accent) !important;
   color: var(--on-accent);
+}
+.hzMenu__item:focus-visible:not(:disabled) {
+  background: var(--accent) !important;
+  color: var(--on-accent);
+  outline: none;
 }
 .hzMenu__item.is-danger:hover:not(:disabled) {
   background: var(--danger) !important;
@@ -194,6 +222,14 @@
   box-shadow: var(--shadow-2);
   font-size: 12px;
   animation: hz-toast-in 180ms var(--ease-out) both;
+  pointer-events: auto;
+  text-align: left;
+}
+.hzToast.is-success {
+  border-color: color-mix(in srgb, var(--ok) 38%, var(--stroke));
+}
+.hzToast.is-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--stroke));
 }
 
 @keyframes hz-toast-in {

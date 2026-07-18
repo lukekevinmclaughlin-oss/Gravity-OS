@@ -157,6 +157,39 @@
   color: #e0a52e;
 }
 
+.orbit__windowsTile {
+  color: #66a2ff;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(100, 170, 255, .22), transparent 58%),
+    var(--glass-bg-lift);
+}
+
+.orbitError {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 50%;
+  z-index: 100;
+  width: min(420px, calc(100vw - 24px));
+  padding: 10px 13px;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--glass-border));
+  border-radius: 12px;
+  color: var(--ink);
+  text-align: left;
+  animation: orbit-error-in 180ms var(--ease-mass) both;
+}
+
+@keyframes orbit-error-in {
+  from { opacity: 0; transform: translate(-50%, 5px) scale(.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbitItem__tileWrap.is-launching,
+  .orbitItem.is-error .orbitItem__tileWrap,
+  .orbitError { animation: none; }
+  .orbitItem { transition-duration: 1ms; }
+}
+
 .orbitContextDismiss {
   position: fixed;
   inset: 0;

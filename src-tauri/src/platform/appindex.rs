@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use windows::core::{BSTR, PCWSTR};
+use windows::core::{BSTR, GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, PCWSTR};
 use windows::Win32::Foundation::{BOOL, CloseHandle, FALSE, HANDLE, HWND, LPARAM, MAX_PATH, TRUE};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
@@ -17,10 +17,42 @@ use windows::Win32::UI::Shell::PropertiesSystem::{
     IPropertyStore, PROPERTYKEY, SHGetPropertyStoreForWindow,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, GetWindowThreadProcessId, SW_SHOWNORMAL,
+    EnumChildWindows, GetWindowThreadProcessId, HICON, SW_SHOWNORMAL,
 };
 
 use crate::shell::AppInfo;
+
+/// The generated `Win32_UI_Controls` bindings statically import every
+/// Common Controls entry point, including TaskDialogIndirect. Cargo test
+/// executables do not carry Tauri's production Common Controls v6 manifest,
+/// so that broad import prevents the test harness from starting. Gravity only
+/// needs the stable IImageList::GetIcon ABI; keep that tiny COM surface local.
+#[repr(transparent)]
+struct ShellImageList(IUnknown);
+
+impl Clone for ShellImageList {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+unsafe impl Interface for ShellImageList {
+    type Vtable = ShellImageListVtbl;
+    const IID: GUID = GUID::from_u128(0x46eb5926_582e_4017_9fdf_e8998daa0950);
+}
+
+#[repr(C)]
+struct ShellImageListVtbl {
+    base__: IUnknown_Vtbl,
+    add: usize,
+    replace_icon: usize,
+    set_overlay_image: usize,
+    replace: usize,
+    add_masked: usize,
+    draw: usize,
+    remove: usize,
+    get_icon: unsafe extern "system" fn(*mut c_void, i32, u32, *mut HICON) -> HRESULT,
+}
 
 /// Curated dock defaults: (name, launch command, icon source override).
 /// `command` is handed to ShellExecute (exe name, URI scheme, or path).
@@ -599,7 +631,6 @@ fn extract_icon_imagelist(path: &str) -> Option<IconData> {
     };
     use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
-    use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::{
         SHGetFileInfoW, SHGetImageList, SHFILEINFOW, SHGFI_SYSICONINDEX, SHIL_JUMBO,
     };
@@ -620,8 +651,11 @@ fn extract_icon_imagelist(path: &str) -> Option<IconData> {
         if ok == 0 {
             return None;
         }
-        let list: IImageList = SHGetImageList(SHIL_JUMBO as i32).ok()?;
-        let hicon = list.GetIcon(sfi.iIcon, ILD_TRANSPARENT.0).ok()?;
+        let list: ShellImageList = SHGetImageList(SHIL_JUMBO as i32).ok()?;
+        let mut hicon = HICON::default();
+        (list.vtable().get_icon)(list.as_raw(), sfi.iIcon, 1, &mut hicon)
+            .ok()
+            .ok()?;
         if hicon.is_invalid() {
             return None;
         }

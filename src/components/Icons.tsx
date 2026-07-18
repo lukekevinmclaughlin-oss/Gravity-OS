@@ -121,8 +121,7 @@ export function CloseIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** Generic 2×2 grid — the "switch to the other desktop" glyph.
- *  Deliberately not the Windows flag mark: square panes, even gaps. */
+/** Generic 2×2 grid for the application library. */
 export function GridIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -130,6 +129,15 @@ export function GridIcon({ size = 16 }: IconProps) {
       <rect x="12.8" y="4" width="7.2" height="7.2" rx="1.4" />
       <rect x="4" y="12.8" width="7.2" height="7.2" rx="1.4" />
       <rect x="12.8" y="12.8" width="7.2" height="7.2" rx="1.4" />
+    </svg>
+  );
+}
+
+/** Familiar four-pane system glyph for the explicit Windows handoff. */
+export function WindowsIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="m3.2 5.1 7.6-1.05v7.25H3.2V5.1Zm8.7-1.2L20.8 2.7v8.6h-8.9V3.9ZM3.2 12.7h7.6v7.25L3.2 18.9v-6.2Zm8.7 0h8.9v8.6l-8.9-1.2v-7.4Z" />
     </svg>
   );
 }

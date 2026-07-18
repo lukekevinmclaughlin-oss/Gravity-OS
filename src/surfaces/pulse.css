@@ -77,6 +77,17 @@
   opacity: 0;
   transition: opacity var(--t-light) var(--ease-mass);
 }
+
+.pulse__error {
+  width: 100%;
+  margin-top: 7px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--glass-border));
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 11px;
+  text-align: left;
+}
 .pulse__toast:hover .pulse__close {
   opacity: 1;
   background: var(--glass-bg-lift);

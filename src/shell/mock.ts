@@ -76,6 +76,7 @@ export class MockShell implements ShellProviderI {
     notifications: [],
     appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
     windowing: { gap: 10, cycling: true, scenes: [], rules: [] },
+    shellMode: "gravity",
   };
 
   constructor() {
@@ -123,7 +124,10 @@ export class MockShell implements ShellProviderI {
   }
 
   actions: ShellActions = {
-    focusWindow: (id) => {
+    focusWindow: async (id) => {
+      if (!this.state.windows.some((window) => window.id === id)) {
+        throw new Error("That preview window is no longer available.");
+      }
       this.emit({
         windows: this.state.windows.map((w) => ({
           ...w,
@@ -134,25 +138,36 @@ export class MockShell implements ShellProviderI {
           this.state.windows.find((w) => w.id === id)?.orbitId ?? this.state.activeOrbit,
       });
     },
-    minimizeWindow: (id) => {
+    minimizeWindow: async (id) => {
+      if (!this.state.windows.some((window) => window.id === id)) {
+        throw new Error("That preview window is no longer available.");
+      }
       this.emit({
         windows: this.state.windows.map((w) =>
           w.id === id ? { ...w, minimized: true, focused: false } : w
         ),
       });
     },
-    closeWindow: (id) => {
+    closeWindow: async (id) => {
+      if (!this.state.windows.some((window) => window.id === id)) {
+        throw new Error("That preview window is no longer available.");
+      }
       this.emit({ windows: this.state.windows.filter((w) => w.id !== id) });
     },
-    windowAction: async () => {},
-    windowActionFor: async () => {},
-    launchApp: async (appId) => {
-      const open = this.state.windows.filter((w) => w.appId === appId);
-      if (open.length > 0) {
-        this.actions.focusWindow(open[0].id);
-        return { appId, accepted: true };
+    windowAction: async (action) => {
+      this.notify("Window Studio", "Layout applied", action);
+    },
+    windowActionFor: async (windowId, action) => {
+      if (!this.state.windows.some((window) => window.id === windowId)) {
+        throw new Error("That preview window is no longer available.");
       }
-      const appName = this.state.apps.find((a) => a.id === appId)?.name ?? appId;
+      await this.actions.focusWindow(windowId);
+      this.notify("Window Studio", "Layout applied", action);
+    },
+    launchApp: async (appId) => {
+      const targetApp = this.state.apps.find((item) => item.id === appId);
+      if (!targetApp) throw new Error("That application is no longer installed.");
+      const appName = targetApp.name;
       // Launch latency: the icon gets time to bounce.
       setTimeout(() => {
         this.emit({
@@ -165,6 +180,9 @@ export class MockShell implements ShellProviderI {
       return { appId, accepted: true };
     },
     setAppPinned: async (appId, pinned) => {
+      if (!this.state.apps.some((item) => item.id === appId)) {
+        throw new Error("That application is no longer installed.");
+      }
       this.emit({
         apps: this.state.apps.map((item) =>
           item.id === appId ? { ...item, pinned } : item
@@ -172,6 +190,10 @@ export class MockShell implements ShellProviderI {
       });
     },
     reorderPinnedApps: async (appIds) => {
+      const known = new Set(this.state.apps.filter((item) => item.pinned).map((item) => item.id));
+      if (appIds.length !== known.size || appIds.some((id) => !known.has(id))) {
+        throw new Error("The dock order no longer matches the pinned applications.");
+      }
       const order = new Map(appIds.map((id, index) => [id, index]));
       this.emit({
         apps: [...this.state.apps].sort((a, b) => {
@@ -186,15 +208,22 @@ export class MockShell implements ShellProviderI {
       this.emit({ appearance: { ...this.state.appearance, mode, resolved } });
     },
     setWallpaper: async (wallpaperId) => {
+      if (!["deep-field", "event-horizon", "orbital-bloom", "glacial-lensing", "live-field"].includes(wallpaperId)) {
+        throw new Error("That wallpaper is not available.");
+      }
       this.emit({ appearance: { ...this.state.appearance, wallpaperId } });
     },
     setWindowPreferences: async (gap, cycling) => {
       this.emit({ windowing: { ...this.state.windowing, gap, cycling } });
     },
     captureScene: async (name) => {
+      const cleanName = name.trim();
+      if (!cleanName || [...cleanName].length > 64) {
+        throw new Error("Scene names must contain 1 to 64 characters.");
+      }
       const scene = {
         id: `scene-${Date.now()}`,
-        name,
+        name: cleanName,
         createdAt: Math.floor(Date.now() / 1000),
         windows: this.state.windows.map((window) => ({
           appId: window.appId,
@@ -205,19 +234,30 @@ export class MockShell implements ShellProviderI {
       this.emit({ windowing: { ...this.state.windowing, scenes: [...this.state.windowing.scenes, scene] } });
       return scene;
     },
-    restoreScene: async () => {},
+    restoreScene: async (sceneId) => {
+      const scene = this.state.windowing.scenes.find((item) => item.id === sceneId);
+      if (!scene) throw new Error("That Scene no longer exists.");
+      this.notify("Window Studio", "Scene restored", scene.name);
+    },
     deleteScene: async (sceneId) => {
+      if (!this.state.windowing.scenes.some((scene) => scene.id === sceneId)) {
+        throw new Error("That Scene no longer exists.");
+      }
       this.emit({ windowing: { ...this.state.windowing, scenes: this.state.windowing.scenes.filter((scene) => scene.id !== sceneId) } });
     },
     upsertWindowRule: async (appId, action, enabled) => {
       const app = this.state.apps.find((item) => item.id === appId);
+      if (!app) throw new Error("That application is no longer installed.");
       const rule = { id: `rule-${appId}`, appId, appName: app?.name ?? appId, action, enabled };
       this.emit({ windowing: { ...this.state.windowing, rules: [...this.state.windowing.rules.filter((item) => item.id !== rule.id), rule] } });
     },
     deleteWindowRule: async (ruleId) => {
+      if (!this.state.windowing.rules.some((rule) => rule.id === ruleId)) {
+        throw new Error("That Rule no longer exists.");
+      }
       this.emit({ windowing: { ...this.state.windowing, rules: this.state.windowing.rules.filter((rule) => rule.id !== ruleId) } });
     },
-    setVolume: (v) => this.patchStatus({ volume: Math.min(1, Math.max(0, v)) }),
+    setVolume: async (v) => this.patchStatus({ volume: Math.min(1, Math.max(0, v)) }),
     setBrightness: async (v) => this.patchStatus({ brightness: Math.min(1, Math.max(0, v)) }),
     toggleSetting: async (key: ToggleKey) => {
       if (key === "wifi") {
@@ -229,23 +269,50 @@ export class MockShell implements ShellProviderI {
         this.patchStatus({ focus: !this.state.status.focus });
       }
     },
-    dismissNotification: (id) => {
+    dismissNotification: async (id) => {
+      if (!this.state.notifications.some((notification) => notification.id === id)) {
+        throw new Error("That notification is no longer available.");
+      }
       this.emit({ notifications: this.state.notifications.filter((n) => n.id !== id) });
     },
-    switchOrbit: (id) => this.emit({ activeOrbit: id }),
+    switchOrbit: async (id) => {
+      if (!this.state.orbits.some((orbit) => orbit.id === id)) {
+        throw new Error("That Orbit does not exist.");
+      }
+      const target = this.state.windows.find(
+        (window) => window.orbitId === id && !window.minimized
+      );
+      this.emit({
+        activeOrbit: id,
+        windows: this.state.windows.map((window) => ({
+          ...window,
+          focused: target ? window.id === target.id : false,
+        })),
+      });
+    },
     moveWindowToOrbit: async (windowId, orbitId) => {
+      if (!this.state.orbits.some((orbit) => orbit.id === orbitId)) {
+        throw new Error("That Orbit does not exist.");
+      }
+      if (!this.state.windows.some((window) => window.id === windowId)) {
+        throw new Error("That preview window is no longer available.");
+      }
       this.emit({
         windows: this.state.windows.map((window) =>
           window.id === windowId ? { ...window, orbitId } : window
         ),
       });
     },
-    emptyTrash: () => this.patchStatus({ trashFull: false }),
-    powerAction: (kind) => this.notify("Gravity", "Power", `“${kind}” is simulated on the mock machine.`),
-    editAction: () => {},
-    openSetting: (uri) => this.notify("Gravity", "Settings", `Would open ${uri} on Windows.`),
-    setShellActive: (active) =>
-      this.notify("Gravity", "Shell", active ? "Gravity resumed." : "Switched to Windows 11 (simulated)."),
-    quitShell: () => this.notify("Gravity", "Shell", "Quit is simulated on the mock machine."),
+    emptyTrash: async () => this.patchStatus({ trashFull: false }),
+    powerAction: async (kind) => this.notify("Gravity", "Power", `“${kind}” is simulated on the mock machine.`),
+    editAction: async (kind) => this.notify("Gravity", "Edit command sent", kind),
+    openSetting: async (uri) => this.notify("Gravity", "Settings", `Would open ${uri} on Windows.`),
+    setShellActive: async (active) => {
+      const mode = active ? "gravity" as const : "windows" as const;
+      this.emit({ shellMode: mode });
+      this.notify("Gravity", "Shell", active ? "Gravity resumed." : "Switched to Windows 11 (simulated)." );
+      return { mode, active };
+    },
+    quitShell: async () => this.notify("Gravity", "Shell", "Quit is simulated on the mock machine."),
   };
 }

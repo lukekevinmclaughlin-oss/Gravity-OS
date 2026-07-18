@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
-import { GridIcon, SunIcon, TrashIcon } from "../components/Icons";
+import { GridIcon, SunIcon, TrashIcon, WindowsIcon } from "../components/Icons";
 import { isAppRunning, windowsOf } from "../shell/types";
 import { reorderPinnedIds } from "../lib/dock";
 import { fitOrbitWindow, growOrbitWindow, openOverlay } from "../lib/win";
@@ -38,6 +38,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   const [trashArmed, setTrashArmed] = useState(false);
   const [menu, setMenu] = useState<OrbitMenuState | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     void growOrbitWindow(menu !== null);
@@ -119,7 +120,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
       return;
     }
     const target = wins.find((w) => !w.minimized) ?? wins[0];
-    actions.focusWindow(target.id);
+    await actions.focusWindow(target.id);
   };
 
   const openAppMenu = (event: React.MouseEvent, appId: string) => {
@@ -140,8 +141,12 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   const menuWindows = menuApp ? windowsOf(state, menuApp.id) : [];
   const setPinned = async (pinned: boolean) => {
     if (!menuApp) return;
-    await actions.setAppPinned(menuApp.id, pinned);
-    setMenu(null);
+    try {
+      await actions.setAppPinned(menuApp.id, pinned);
+      setMenu(null);
+    } catch (error) {
+      setActionError(String(error));
+    }
   };
 
   return (
@@ -194,6 +199,26 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
       <span className="orbit__sep" />
 
       <button
+        className="orbitItem orbit__utility orbit__windows"
+        style={{ width: BASE }}
+        aria-label="Switch to Windows 11"
+        ref={(element) => {
+          if (element) tileRefs.current.set("__windows", element);
+          else tileRefs.current.delete("__windows");
+        }}
+        onClick={() => {
+          setActionError(null);
+          void actions.setShellActive(false).catch((error) => setActionError(String(error)));
+        }}
+      >
+        <span className="orbitItem__label glass-heavy">Switch to Windows 11 · Ctrl Alt G to return</span>
+        <span className="orbit__utilTile orbit__windowsTile">
+          <WindowsIcon size={21} />
+        </span>
+        <span className="orbitItem__dot" />
+      </button>
+
+      <button
         className="orbitItem orbit__utility"
         style={{ width: BASE }}
         aria-label={`Switch to ${state.appearance.resolved === "light" ? "dark" : "light"} appearance`}
@@ -203,6 +228,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         }}
         onClick={() =>
           void actions.setAppearance(state.appearance.resolved === "light" ? "dark" : "light")
+            .catch((error) => setActionError(String(error)))
         }
       >
         <span className="orbitItem__label glass-heavy">
@@ -219,8 +245,8 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         style={{ width: BASE }}
         aria-label="Applications"
         ref={(el) => {
-          if (el) tileRefs.current.set("__win11", el);
-          else tileRefs.current.delete("__win11");
+          if (el) tileRefs.current.set("__apps", el);
+          else tileRefs.current.delete("__apps");
         }}
         onClick={() => onOpenAppLibrary ? onOpenAppLibrary() : void openOverlay("app-library")}
       >
@@ -242,7 +268,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         onClick={() => {
           if (!state.status.trashFull) return;
           if (trashArmed) {
-            actions.emptyTrash();
+            void actions.emptyTrash().catch((error) => setActionError(String(error)));
             setTrashArmed(false);
           } else {
             setTrashArmed(true);
@@ -279,7 +305,10 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
           <button role="menuitem" onClick={() => { setMenu(null); void onAppClick(menuApp.id); }}>
             {menuWindows.length ? "Show" : "Open"}
           </button>
-          <button role="menuitem" onClick={() => { setMenu(null); void actions.launchApp(menuApp.id); }}>
+          <button role="menuitem" onClick={() => {
+            setMenu(null);
+            void actions.launchApp(menuApp.id).catch((error) => setActionError(String(error)));
+          }}>
             New Window
           </button>
           {menuWindows.length > 1 && (
@@ -295,14 +324,20 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
             <button
               role="menuitem"
               onClick={() => {
-                menuWindows.forEach((item) => actions.closeWindow(item.id));
-                setMenu(null);
+                void Promise.all(menuWindows.map((item) => actions.closeWindow(item.id)))
+                  .then(() => setMenu(null))
+                  .catch((error) => setActionError(String(error)));
               }}
             >
               Quit
             </button>
           )}
         </div>
+      )}
+      {actionError && (
+        <button className="orbitError glass-heavy" role="alert" onClick={() => setActionError(null)}>
+          {actionError}
+        </button>
       )}
     </nav>
   );
