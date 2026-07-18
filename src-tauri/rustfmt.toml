@@ -1,0 +1,3 @@
+# Gravity OS uses stock rustfmt (edition inherited from Cargo.toml).
+# The file exists so `cargo fmt --check` is an explicit, versioned gate.
+edition = "2021"

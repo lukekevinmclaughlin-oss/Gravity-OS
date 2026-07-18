@@ -77,6 +77,8 @@ mod audio;
 #[cfg(windows)]
 mod brightness;
 #[cfg(windows)]
+pub mod events;
+#[cfg(windows)]
 pub mod input;
 #[cfg(windows)]
 mod network;
@@ -84,8 +86,6 @@ mod network;
 mod notifications;
 #[cfg(windows)]
 mod radio;
-#[cfg(windows)]
-pub mod events;
 #[cfg(windows)]
 pub mod shell_control;
 #[cfg(windows)]
