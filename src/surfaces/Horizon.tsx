@@ -80,7 +80,12 @@ export function Horizon({
     }
     const frame = requestAnimationFrame(() => {
       const popup = document.querySelector<HTMLElement>(".hzMenu, .hzConfirm");
-      const needed = popup ? Math.ceil(popup.getBoundingClientRect().bottom + 10) : 420;
+      // The closed native window is only 34px tall, so getBoundingClientRect
+      // reports the viewport-clipped menu and creates a 34 -> 55px feedback
+      // loop. scrollHeight preserves the full menu content even while clipped.
+      const needed = popup
+        ? Math.max(420, Math.ceil(popup.offsetTop + popup.scrollHeight + 10))
+        : 420;
       void growHorizonWindow(true, needed);
     });
     return () => cancelAnimationFrame(frame);

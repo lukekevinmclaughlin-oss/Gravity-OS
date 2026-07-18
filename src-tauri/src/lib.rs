@@ -445,6 +445,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_shell_state,
             commands::fit_orbit_window,
+            commands::set_shell_surface_expanded,
             commands::focus_window,
             commands::minimize_window,
             commands::close_window,

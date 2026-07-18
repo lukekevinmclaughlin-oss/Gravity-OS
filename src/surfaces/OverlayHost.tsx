@@ -29,6 +29,18 @@ export function OverlayHost() {
     return () => unlisten?.();
   }, []);
 
+  useEffect(() => {
+    if (!surface) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setSurface(null);
+      void hideOverlaySelf();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [surface]);
+
   const close = () => {
     setSurface(null);
     void hideOverlaySelf();

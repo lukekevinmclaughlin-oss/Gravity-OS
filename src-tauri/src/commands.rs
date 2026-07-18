@@ -63,6 +63,29 @@ pub fn fit_orbit_window(window: WebviewWindow, app_count: u32) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(windows)]
+#[tauri::command]
+pub fn set_shell_surface_expanded(
+    window: WebviewWindow,
+    expanded: bool,
+    requested_height: f64,
+) -> Result<(), String> {
+    let surface = if window.label().starts_with("horizon-") {
+        "horizon"
+    } else if window.label().starts_with("orbit-") {
+        "orbit"
+    } else {
+        return Err("Surface expansion is only available to Horizon and Orbit".into());
+    };
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    crate::platform::shell_control::set_shell_surface_expanded(
+        hwnd.0 as isize,
+        surface,
+        expanded,
+        requested_height,
+    )
+}
+
 #[tauri::command]
 pub fn set_app_pinned(
     app: tauri::AppHandle,

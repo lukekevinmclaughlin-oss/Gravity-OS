@@ -43,17 +43,11 @@ const ORBIT_OPEN_H = 360;
 export async function growHorizonWindow(open: boolean, requestedHeight = 420): Promise<void> {
   if (!isTauri()) return;
   if (new URLSearchParams(window.location.search).get("surface") !== "horizon") return;
-  const { getCurrentWindow, currentMonitor, LogicalSize } = await import("@tauri-apps/api/window");
-  const win = getCurrentWindow();
-  const scale = await win.scaleFactor();
-  const size = await win.innerSize();
-  const width = size.toLogical(scale).width;
-  const monitor = open ? await currentMonitor() : null;
-  const monitorHeight = monitor ? monitor.size.height / monitor.scaleFactor : requestedHeight;
-  const height = open
-    ? Math.max(HORIZON_CLOSED_H, Math.min(requestedHeight, monitorHeight))
-    : HORIZON_CLOSED_H;
-  await win.setSize(new LogicalSize(width, height));
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_shell_surface_expanded", {
+    expanded: open,
+    requestedHeight,
+  });
 }
 
 let orbitExpanded = false;
@@ -64,17 +58,11 @@ let orbitExpanded = false;
 export async function growOrbitWindow(open: boolean): Promise<void> {
   if (!isTauri() || orbitExpanded === open) return;
   if (new URLSearchParams(window.location.search).get("surface") !== "orbit") return;
-  const { getCurrentWindow, LogicalPosition, LogicalSize } = await import("@tauri-apps/api/window");
-  const win = getCurrentWindow();
-  const scale = await win.scaleFactor();
-  const physicalPosition = await win.outerPosition();
-  const physicalSize = await win.innerSize();
-  const position = physicalPosition.toLogical(scale);
-  const size = physicalSize.toLogical(scale);
-  const targetHeight = open ? ORBIT_OPEN_H : ORBIT_CLOSED_H;
-  const delta = targetHeight - size.height;
-  await win.setPosition(new LogicalPosition(position.x, position.y - delta));
-  await win.setSize(new LogicalSize(size.width, targetHeight));
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_shell_surface_expanded", {
+    expanded: open,
+    requestedHeight: open ? ORBIT_OPEN_H : ORBIT_CLOSED_H,
+  });
   orbitExpanded = open;
 }
 

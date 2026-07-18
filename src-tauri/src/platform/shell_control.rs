@@ -229,6 +229,66 @@ fn unregister_app_bars() {
     }
 }
 
+/// Resize an interactive strip in native DPI-aware coordinates. Keeping this
+/// in Rust avoids relying on WebView window getter permissions for a basic UI
+/// interaction and keeps both surfaces pinned to their physical screen edge.
+pub fn set_shell_surface_expanded(
+    raw_hwnd: isize,
+    surface: &str,
+    expanded: bool,
+    requested_height: f64,
+) -> Result<(), String> {
+    let hwnd = HWND(raw_hwnd as *mut c_void);
+    let monitor_rect = physical_monitor_rect(raw_hwnd)
+        .ok_or_else(|| "Could not resolve the surface monitor".to_string())?;
+    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as f64;
+    let logical_height = match surface {
+        "horizon" => {
+            if expanded {
+                requested_height.clamp(34.0, 900.0)
+            } else {
+                34.0
+            }
+        }
+        "orbit" => {
+            if expanded { 360.0 } else { 170.0 }
+        }
+        _ => return Err("Only Horizon and Orbit can be expanded".into()),
+    };
+    let height = (logical_height * dpi / 96.0).round() as i32;
+    let mut current = RECT::default();
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut current)
+            .map_err(|error| error.to_string())?;
+    }
+    let (x, y, width) = if surface == "horizon" {
+        (
+            monitor_rect.left,
+            monitor_rect.top,
+            monitor_rect.right - monitor_rect.left,
+        )
+    } else {
+        let width = (current.right - current.left).min(monitor_rect.right - monitor_rect.left);
+        (
+            monitor_rect.left + (monitor_rect.right - monitor_rect.left - width) / 2,
+            monitor_rect.bottom - height,
+            width,
+        )
+    };
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            x,
+            y,
+            width,
+            height,
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+        )
+        .map_err(|error| error.to_string())
+    }
+}
+
 /// Resize and center Orbit using native physical monitor coordinates. WebView2
 /// can expose a work-area-relative monitor origin while an AppBar transition
 /// is in flight; querying the HWND avoids that mixed-DPI offset entirely.
