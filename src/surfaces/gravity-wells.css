@@ -16,6 +16,71 @@
 .gravityWell.is-drop-target { filter: drop-shadow(0 0 24px var(--well-color)) drop-shadow(0 28px 36px rgba(0,0,0,.55)); }
 .gravityWell.is-drop-target .gravityWell__body { scale: 1.13; }
 .gravityWell.is-drop-target .gravityWell__core { scale: 1.45; box-shadow: 0 0 16px white, 0 0 42px var(--well-color), 0 0 78px var(--well-color); }
+.gravityWell__captureFx {
+  position: absolute;
+  inset: -38px -30px -20px;
+  z-index: -1;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0;
+  scale: .72;
+  transition: opacity 150ms ease, scale 260ms var(--ease-mass);
+}
+.gravityWell__captureFx::before {
+  content: "";
+  position: absolute;
+  inset: 17px 23px 4px;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 20deg, transparent 0 12%, color-mix(in srgb, var(--well-color) 48%, transparent) 17%, transparent 23% 46%, color-mix(in srgb, white 34%, transparent) 51%, transparent 59% 82%, color-mix(in srgb, var(--well-color) 54%, transparent) 88%, transparent 94%),
+    radial-gradient(circle, color-mix(in srgb, var(--well-color) 24%, transparent), transparent 61%);
+  filter: blur(5px);
+  mix-blend-mode: screen;
+}
+.gravityWell__lens,
+.gravityWell__lens i,
+.gravityWell__particles { position: absolute; inset: 0; }
+.gravityWell__lens i {
+  margin: auto;
+  width: 78%;
+  height: 68%;
+  border: 1px solid color-mix(in srgb, var(--well-color) 70%, white 30%);
+  border-radius: 50%;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--well-color) 45%, transparent), inset 0 0 12px color-mix(in srgb, var(--well-color) 24%, transparent);
+  opacity: .76;
+}
+.gravityWell__lens i:nth-child(2) { width: 62%; height: 54%; opacity: .58; }
+.gravityWell__lens i:nth-child(3) { width: 46%; height: 40%; opacity: .42; }
+.gravityWell__particles i {
+  --particle-angle: 0deg;
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 7px white, 0 0 14px var(--well-color);
+  opacity: 0;
+}
+.gravityWell__particles i:nth-child(1) { --particle-angle: 0deg; --particle-delay: 0ms; }
+.gravityWell__particles i:nth-child(2) { --particle-angle: 45deg; --particle-delay: -190ms; }
+.gravityWell__particles i:nth-child(3) { --particle-angle: 90deg; --particle-delay: -380ms; }
+.gravityWell__particles i:nth-child(4) { --particle-angle: 135deg; --particle-delay: -570ms; }
+.gravityWell__particles i:nth-child(5) { --particle-angle: 180deg; --particle-delay: -760ms; }
+.gravityWell__particles i:nth-child(6) { --particle-angle: 225deg; --particle-delay: -950ms; }
+.gravityWell__particles i:nth-child(7) { --particle-angle: 270deg; --particle-delay: -1140ms; }
+.gravityWell__particles i:nth-child(8) { --particle-angle: 315deg; --particle-delay: -1330ms; }
+.gravityWell.is-drop-target .gravityWell__captureFx,
+.gravityWell.is-capture-complete .gravityWell__captureFx { opacity: 1; scale: 1; }
+.gravityWell.is-drop-target .gravityWell__captureFx::before { animation: well-capture-vortex 2.1s linear infinite; }
+.gravityWell.is-drop-target .gravityWell__lens i { animation: well-lens-collapse 1.35s var(--ease-mass) infinite; }
+.gravityWell.is-drop-target .gravityWell__lens i:nth-child(2) { animation-delay: -450ms; }
+.gravityWell.is-drop-target .gravityWell__lens i:nth-child(3) { animation-delay: -900ms; }
+.gravityWell.is-drop-target .gravityWell__particles i { animation: well-particle-in 1.55s linear var(--particle-delay) infinite; }
+.gravityWell.is-capture-complete .gravityWell__captureFx { animation: well-capture-flash 620ms var(--ease-mass) both; }
+.gravityWell.is-capture-complete .gravityWell__lens i { animation: well-capture-wave 580ms var(--ease-mass) both; }
+.gravityWell.is-capture-complete .gravityWell__particles i { animation: well-particle-burst 540ms var(--ease-mass) var(--particle-delay) both; }
 .gravityWell.is-drop-blocked { filter: drop-shadow(0 0 22px var(--danger)) drop-shadow(0 24px 30px rgba(0,0,0,.5)); }
 .gravityWell.is-drop-blocked .gravityWell__body { animation: well-blocked 180ms ease-in-out 2 alternate; }
 .gravityWell.is-drop-blocked .gravityWell__core { background: var(--danger); box-shadow: 0 0 14px white, 0 0 38px var(--danger); }
@@ -105,6 +170,101 @@
 }
 .gravityWell__face:active { cursor: grabbing; }
 .gravityWell__face:hover { filter: brightness(1.25); transform: rotate(var(--angle)) translateY(calc(-62px * var(--well-scale))) rotate(calc(var(--angle) * -1)) scale(1.16); }
+.wellReleaseFx { position: fixed; inset: 0; z-index: 110; overflow: hidden; pointer-events: none; color: var(--release-color); }
+.wellReleaseFx__field { position: absolute; inset: 0; overflow: visible; }
+.wellReleaseFx__tetherGlow,
+.wellReleaseFx__tether { fill: none; stroke-linecap: round; }
+.wellReleaseFx__tetherGlow { stroke: var(--release-color); stroke-width: 10; opacity: .2; filter: blur(7px); }
+.wellReleaseFx__tether { stroke: color-mix(in srgb, var(--release-color) 76%, white 24%); stroke-width: 1.5; stroke-dasharray: 2 8; opacity: .88; animation: well-tether-flow 420ms linear infinite; }
+.wellReleaseFx__origin,
+.wellReleaseFx__ghost,
+.wellReleaseFx__burst { position: absolute; translate: -50% -50%; }
+.wellReleaseFx__origin {
+  width: 15px;
+  height: 15px;
+  border: 1px solid white;
+  border-radius: 50%;
+  background: var(--release-color);
+  box-shadow: 0 0 11px white, 0 0 28px var(--release-color);
+  animation: well-release-origin 720ms ease-in-out infinite alternate;
+}
+.wellReleaseFx__ghost {
+  display: grid;
+  width: 62px;
+  justify-items: center;
+  gap: 6px;
+  filter: drop-shadow(0 16px 20px rgba(0,0,0,.46)) drop-shadow(0 0 13px color-mix(in srgb, var(--release-color) 62%, transparent));
+  transform-origin: center;
+  transition: scale 140ms var(--ease-mass), opacity 140ms ease;
+}
+.wellReleaseFx__ghost::before,
+.wellReleaseFx__ghost::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  width: 70px;
+  height: 22px;
+  translate: -50% -50%;
+  border: 1px solid color-mix(in srgb, var(--release-color) 62%, white 18%);
+  border-radius: 50%;
+  opacity: .55;
+  animation: well-ghost-orbit 1.3s linear infinite;
+}
+.wellReleaseFx__ghost::after { width: 48px; height: 66px; opacity: .34; animation-direction: reverse; animation-duration: 1.8s; }
+.wellReleaseFx__ghostTile {
+  display: block;
+  width: 44px;
+  height: 44px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--release-color) 64%, white 20%);
+  border-radius: 13px;
+  background: color-mix(in srgb, #09111f 80%, var(--release-color) 20%);
+  box-shadow: inset 0 1px rgba(255,255,255,.24), 0 0 22px color-mix(in srgb, var(--release-color) 42%, transparent);
+}
+.wellReleaseFx__ghostLabel {
+  max-width: 130px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--release-color) 30%, var(--glass-border));
+  border-radius: 99px;
+  color: white;
+  background: rgba(6, 12, 22, .78);
+  box-shadow: 0 5px 14px rgba(0,0,0,.28);
+  font: 600 8px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.wellReleaseFx.is-armed .wellReleaseFx__ghost { opacity: .42; scale: .64; }
+.wellReleaseFx.is-dragging .wellReleaseFx__ghost { animation: well-ghost-float 820ms ease-in-out infinite alternate; }
+.wellReleaseFx.is-released .wellReleaseFx__ghost { animation: well-release-settle 500ms var(--ease-mass) both; }
+.wellReleaseFx.is-docked .wellReleaseFx__ghost { animation: well-release-dock 500ms cubic-bezier(.4,0,.8,.2) both; }
+.wellReleaseFx.is-released .wellReleaseFx__tether,
+.wellReleaseFx.is-released .wellReleaseFx__tetherGlow,
+.wellReleaseFx.is-docked .wellReleaseFx__tether,
+.wellReleaseFx.is-docked .wellReleaseFx__tetherGlow { animation: well-tether-release 360ms ease-out both; }
+.wellReleaseFx__burst { width: 8px; height: 8px; opacity: 0; }
+.wellReleaseFx__burst i {
+  --burst-angle: 0deg;
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 8px white, 0 0 14px var(--release-color);
+}
+.wellReleaseFx__burst i:nth-child(2) { --burst-angle: 45deg; }
+.wellReleaseFx__burst i:nth-child(3) { --burst-angle: 90deg; }
+.wellReleaseFx__burst i:nth-child(4) { --burst-angle: 135deg; }
+.wellReleaseFx__burst i:nth-child(5) { --burst-angle: 180deg; }
+.wellReleaseFx__burst i:nth-child(6) { --burst-angle: 225deg; }
+.wellReleaseFx__burst i:nth-child(7) { --burst-angle: 270deg; }
+.wellReleaseFx__burst i:nth-child(8) { --burst-angle: 315deg; }
+.wellReleaseFx.is-released .wellReleaseFx__burst,
+.wellReleaseFx.is-docked .wellReleaseFx__burst { opacity: 1; }
+.wellReleaseFx.is-released .wellReleaseFx__burst i { animation: well-release-spark 480ms var(--ease-mass) both; }
+.wellReleaseFx.is-docked .wellReleaseFx__burst i { animation: well-dock-spark 480ms var(--ease-mass) both; }
 .wellMenuDismiss { position: fixed; inset: 0; z-index: 97; pointer-events: auto; }
 .wellMenu {
   position: fixed; z-index: 98; width: 292px; max-height: min(620px, calc(100vh - 28px)); padding: 8px; border-radius: 16px; pointer-events: auto;
@@ -220,8 +380,68 @@
 @keyframes well-spin { to { transform: rotateY(360deg) rotateX(8deg); } }
 @keyframes well-core { to { scale: 1.18; opacity: .74; } }
 @keyframes well-blocked { to { translate: 5px 0; } }
+@keyframes well-capture-vortex { to { rotate: 360deg; } }
+@keyframes well-lens-collapse {
+  from { scale: 1.42; opacity: 0; rotate: -10deg; }
+  24% { opacity: .78; }
+  to { scale: .24; opacity: 0; rotate: 32deg; }
+}
+@keyframes well-particle-in {
+  from { transform: rotate(var(--particle-angle)) translateX(88px) scale(.5); opacity: 0; }
+  15% { opacity: .96; }
+  72% { opacity: .72; }
+  to { transform: rotate(calc(var(--particle-angle) + 120deg)) translateX(3px) scale(1.8); opacity: 0; }
+}
+@keyframes well-capture-flash {
+  0% { opacity: .35; scale: .74; filter: brightness(1); }
+  38% { opacity: 1; scale: 1.16; filter: brightness(1.8); }
+  100% { opacity: 0; scale: 1.42; filter: brightness(1); }
+}
+@keyframes well-capture-wave {
+  from { scale: .18; opacity: .95; }
+  to { scale: 1.8; opacity: 0; }
+}
+@keyframes well-particle-burst {
+  from { transform: rotate(var(--particle-angle)) translateX(2px) scale(1.8); opacity: 1; }
+  to { transform: rotate(calc(var(--particle-angle) + 35deg)) translateX(86px) scale(.15); opacity: 0; }
+}
+@keyframes well-tether-flow { to { stroke-dashoffset: -20; } }
+@keyframes well-release-origin { to { scale: 1.34; opacity: .65; } }
+@keyframes well-ghost-orbit { to { rotate: 360deg; } }
+@keyframes well-ghost-float { to { translate: -50% calc(-50% - 4px); scale: 1.035; } }
+@keyframes well-release-settle {
+  0% { scale: 1; opacity: 1; filter: brightness(1.5) drop-shadow(0 0 18px var(--release-color)); }
+  42% { scale: 1.16; opacity: .96; }
+  100% { scale: .78; opacity: 0; filter: brightness(1); }
+}
+@keyframes well-release-dock {
+  0% { scale: 1; opacity: 1; }
+  45% { scale: .68 1.15; opacity: .92; }
+  100% { translate: -50% 55px; scale: .15; opacity: 0; }
+}
+@keyframes well-tether-release { to { opacity: 0; stroke-dashoffset: -34; } }
+@keyframes well-release-spark {
+  from { transform: rotate(var(--burst-angle)) translateX(2px) scale(1); opacity: 1; }
+  to { transform: rotate(var(--burst-angle)) translateX(54px) scale(.1); opacity: 0; }
+}
+@keyframes well-dock-spark {
+  from { transform: rotate(var(--burst-angle)) translateX(2px) scale(1); opacity: 1; }
+  to { transform: rotate(calc(var(--burst-angle) + 28deg)) translateX(32px) translateY(26px) scale(.1); opacity: 0; }
+}
 @keyframes well-menu-in { from { opacity: 0; transform: translate(-20px, -12px) scale(.94); } }
 @keyframes well-settings-scrim { from { opacity: 0; } }
 @keyframes well-settings-in { from { opacity: 0; translate: -50% calc(-50% + 18px); scale: .96; filter: blur(6px); } }
 @media (max-width: 700px) { .wellSettings__actions { grid-template-columns: repeat(2, 1fr); } .wellSettings__kinds { grid-template-columns: repeat(3, 1fr); } }
-@media (prefers-reduced-motion: reduce) { .gravityWell__shape, .gravityWell__core, .wellMenu, .wellSettings, .wellSettingsScrim { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .gravityWell__shape,
+  .gravityWell__core,
+  .gravityWell__captureFx,
+  .gravityWell__captureFx::before,
+  .gravityWell__lens i,
+  .gravityWell__particles i,
+  .wellReleaseFx *,
+  .wellMenu,
+  .wellSettings,
+  .wellSettingsScrim { animation: none !important; }
+  .wellReleaseFx__tether { stroke-dasharray: none; }
+}

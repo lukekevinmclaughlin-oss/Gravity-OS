@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AppTile } from "../components/AppTile";
 import { useShell } from "../shell/context";
+import type { WindowInfo } from "../shell/types";
 import {
   colorForWell,
   createDefaultWell as defaultWell,
@@ -20,6 +21,19 @@ import "./gravity-wells.css";
 interface WellGrid {
   columns: number;
   rows: number;
+}
+
+interface WellReleaseVisual {
+  windowId: string;
+  title: string;
+  appId?: string;
+  hue: number;
+  color: string;
+  originX: number;
+  originY: number;
+  x: number;
+  y: number;
+  phase: "armed" | "dragging" | "released" | "docked";
 }
 
 function loadGrid(): WellGrid | null {
@@ -56,7 +70,11 @@ export function GravityWells() {
   const [message, setMessage] = useState<string | null>(null);
   const [hoverTarget, setHoverTarget] = useState<{ id: string; accepting: boolean } | null>(null);
   const [draggingWellId, setDraggingWellId] = useState<string | null>(null);
+  const [capturedWellId, setCapturedWellId] = useState<string | null>(null);
+  const [releaseVisual, setReleaseVisual] = useState<WellReleaseVisual | null>(null);
+  const previousOccupancy = useRef<Map<string, number> | null>(null);
   const suppressRelease = useRef(new Set<string>());
+  const releaseActive = releaseVisual !== null;
 
   useEffect(() => {
     const timer = window.setTimeout(() => writeDesktopWells(wells), draggingWellId ? 140 : 0);
@@ -64,11 +82,11 @@ export function GravityWells() {
   }, [wells, draggingWellId]);
 
   useEffect(() => {
-    void actions.setWellSurfaceExpanded(Boolean(menu || settingsWellId || draggingWellId)).catch((error) => setMessage(String(error)));
+    void actions.setWellSurfaceExpanded(Boolean(menu || settingsWellId || draggingWellId || releaseActive)).catch((error) => setMessage(String(error)));
     return () => {
       void actions.setWellSurfaceExpanded(false).catch(() => undefined);
     };
-  }, [actions, menu, settingsWellId, draggingWellId]);
+  }, [actions, menu, settingsWellId, draggingWellId, releaseActive]);
 
   useEffect(() => {
     if (grid) localStorage.setItem(GRID_STORAGE_KEY, JSON.stringify(grid));
@@ -159,6 +177,21 @@ export function GravityWells() {
     () => new Map(wells.map((well) => [well.id, state.windows.filter((window) => window.parkedWellId === well.id)])),
     [state.windows, wells],
   );
+
+  useEffect(() => {
+    const next = new Map(wells.map((well) => [
+      well.id,
+      state.windows.filter((window) => window.parkedWellId === well.id).length,
+    ]));
+    const previous = previousOccupancy.current;
+    previousOccupancy.current = next;
+    if (!previous) return;
+    const captured = wells.find((well) => (next.get(well.id) ?? 0) > (previous.get(well.id) ?? 0));
+    if (!captured) return;
+    setCapturedWellId(captured.id);
+    const timer = window.setTimeout(() => setCapturedWellId((current) => current === captured.id ? null : current), 620);
+    return () => window.clearTimeout(timer);
+  }, [state.windows, wells]);
   const activeWindow = state.windows.find((window) => window.focused && !window.minimized && !window.parkedWellId)
     ?? state.windows.find((window) => window.orbitId === state.activeOrbit && !window.minimized && !window.parkedWellId);
 
@@ -256,24 +289,56 @@ export function GravityWells() {
     window.addEventListener("pointercancel", finish, { once: true });
   };
 
-  const beginReleaseDrag = (event: ReactPointerEvent<HTMLButtonElement>, windowId: string) => {
+  const beginReleaseDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    well: WellDefinition,
+    storedWindow: WindowInfo,
+  ) => {
     if (event.button !== 0) return;
     event.stopPropagation();
+    const windowId = storedWindow.id;
     const startX = event.clientX;
     const startY = event.clientY;
+    const faceBounds = event.currentTarget.getBoundingClientRect();
+    const app = state.apps.find((item) => item.id === storedWindow.appId);
+    setReleaseVisual({
+      windowId,
+      title: storedWindow.title,
+      appId: app?.id,
+      hue: app?.hue ?? 222,
+      color: colorForWell(well),
+      originX: faceBounds.left + faceBounds.width / 2,
+      originY: faceBounds.top + faceBounds.height / 2,
+      x: startX,
+      y: startY,
+      phase: "armed",
+    });
     let moved = false;
     const move = (next: PointerEvent) => {
       if (!moved && Math.hypot(next.clientX - startX, next.clientY - startY) > 8) {
         moved = true;
         suppressRelease.current.add(windowId);
       }
+      if (moved) {
+        setReleaseVisual((current) => current?.windowId === windowId
+          ? { ...current, x: next.clientX, y: next.clientY, phase: "dragging" }
+          : current);
+      }
     };
     const finish = (next: PointerEvent) => {
       window.removeEventListener("pointermove", move);
-      if (!moved) return;
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      if (!moved) {
+        setReleaseVisual((current) => current?.windowId === windowId ? null : current);
+        return;
+      }
       const width = .42;
       const height = .48;
       void actions.isDesktopTrashTarget(next.clientX, next.clientY).then(async (overTrash) => {
+        setReleaseVisual((current) => current?.windowId === windowId
+          ? { ...current, x: next.clientX, y: next.clientY, phase: overTrash ? "docked" : "released" }
+          : current);
         const destination = overTrash
           ? null
           : await actions.desktopPointerLocation(next.clientX, next.clientY);
@@ -295,10 +360,13 @@ export function GravityWells() {
           height,
         );
         setMessage(`Window released onto Display ${destination.monitor + 1}.`);
-      }).catch((error) => setMessage(String(error)));
+      }).catch((error) => setMessage(String(error))).finally(() => {
+        window.setTimeout(() => setReleaseVisual((current) => current?.windowId === windowId ? null : current), 520);
+      });
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
   };
 
   if (!visible) return null;
@@ -320,7 +388,7 @@ export function GravityWells() {
         return (
           <section
             key={well.id}
-            className={`gravityWell gravityWell--${well.kind} ${draggingWellId === well.id ? "is-dragging" : ""} ${full ? "is-full" : ""} ${hoverTarget?.id === well.id ? hoverTarget.accepting ? "is-drop-target" : "is-drop-blocked" : ""}`}
+            className={`gravityWell gravityWell--${well.kind} ${draggingWellId === well.id ? "is-dragging" : ""} ${capturedWellId === well.id ? "is-capture-complete" : ""} ${full ? "is-full" : ""} ${hoverTarget?.id === well.id ? hoverTarget.accepting ? "is-drop-target" : "is-drop-blocked" : ""}`}
             style={style}
             aria-label={`${well.name}, ${occupants.length} of ${capacity} windows${full ? ", full" : ""}`}
             onContextMenu={(event) => {
@@ -350,6 +418,10 @@ export function GravityWells() {
             >
               <span className="gravityWell__shape" style={{ "--well-rotation": `${well.rotation ?? 0}deg` } as CSSProperties} aria-hidden="true"><i /><i /><i /></span>
               <span className="gravityWell__core" aria-hidden="true" />
+              <span className="gravityWell__captureFx" aria-hidden="true">
+                <span className="gravityWell__lens"><i /><i /><i /></span>
+                <span className="gravityWell__particles"><i /><i /><i /><i /><i /><i /><i /><i /></span>
+              </span>
             </button>
             <span className="gravityWell__name">{well.name}</span>
             <span className="gravityWell__count" title={full ? "This shape is full" : `${capacity - occupants.length} spaces available`}>
@@ -365,7 +437,7 @@ export function GravityWells() {
                     style={{ "--face-index": index } as CSSProperties}
                     aria-label={`Release ${window.title}`}
                     title={`Release ${window.title}`}
-                    onPointerDown={(event) => beginReleaseDrag(event, window.id)}
+                    onPointerDown={(event) => beginReleaseDrag(event, well, window)}
                     onClick={() => {
                       if (suppressRelease.current.delete(window.id)) return;
                       void actions.releaseWindow(window.id)
@@ -381,6 +453,32 @@ export function GravityWells() {
           </section>
         );
       })}
+
+      {releaseVisual && (() => {
+        const dx = releaseVisual.x - releaseVisual.originX;
+        const dy = releaseVisual.y - releaseVisual.originY;
+        const bend = Math.min(78, Math.hypot(dx, dy) * .18);
+        const path = `M ${releaseVisual.originX} ${releaseVisual.originY} C ${releaseVisual.originX + dx * .28} ${releaseVisual.originY - bend}, ${releaseVisual.originX + dx * .72} ${releaseVisual.y + bend}, ${releaseVisual.x} ${releaseVisual.y}`;
+        const style = { "--release-color": releaseVisual.color } as CSSProperties;
+        return (
+          <div className={`wellReleaseFx is-${releaseVisual.phase}`} style={style} aria-hidden="true">
+            <svg className="wellReleaseFx__field" width="100%" height="100%">
+              <path className="wellReleaseFx__tetherGlow" d={path} />
+              <path className="wellReleaseFx__tether" d={path} />
+            </svg>
+            <span className="wellReleaseFx__origin" style={{ left: releaseVisual.originX, top: releaseVisual.originY }} />
+            <span className="wellReleaseFx__ghost" style={{ left: releaseVisual.x, top: releaseVisual.y }}>
+              <span className="wellReleaseFx__ghostTile">
+                <AppTile name={releaseVisual.title} hue={releaseVisual.hue} appId={releaseVisual.appId} fill />
+              </span>
+              <span className="wellReleaseFx__ghostLabel">{releaseVisual.title}</span>
+            </span>
+            <span className="wellReleaseFx__burst" style={{ left: releaseVisual.x, top: releaseVisual.y }}>
+              <i /><i /><i /><i /><i /><i /><i /><i />
+            </span>
+          </div>
+        );
+      })()}
 
       {menu && (() => {
         const well = wells.find((item) => item.id === menu.id);
