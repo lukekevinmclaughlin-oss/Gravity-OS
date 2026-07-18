@@ -119,6 +119,16 @@ fn set_well_surface_region(
     )
 }
 
+/// Wells surfaces whose region is currently expanded (menu, settings panel or
+/// drag in flight). Target re-registration must never collapse an expanded
+/// region mid-interaction — that was clipping open Well menus.
+#[cfg(windows)]
+fn expanded_well_surfaces() -> &'static parking_lot::Mutex<std::collections::HashSet<String>> {
+    static EXPANDED: std::sync::OnceLock<parking_lot::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    EXPANDED.get_or_init(|| parking_lot::Mutex::new(std::collections::HashSet::new()))
+}
+
 #[cfg(windows)]
 fn update_well_surface_regions(
     app: &AppHandle,
@@ -129,7 +139,8 @@ fn update_well_surface_regions(
         .into_iter()
         .filter(|(label, _)| label.starts_with("wells-"))
     {
-        set_well_surface_region(&window, targets, false)
+        let expanded = expanded_well_surfaces().lock().contains(&label);
+        set_well_surface_region(&window, targets, expanded)
             .map_err(|error| format!("{label}: {error}"))?;
     }
     Ok(())
@@ -138,6 +149,14 @@ fn update_well_surface_regions(
 #[cfg(windows)]
 #[tauri::command]
 pub fn set_well_surface_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
+    {
+        let mut set = expanded_well_surfaces().lock();
+        if expanded {
+            set.insert(window.label().to_string());
+        } else {
+            set.remove(window.label());
+        }
+    }
     let targets = crate::platform::snap::well_targets_snapshot();
     set_well_surface_region(&window, &targets, expanded)
 }
@@ -1116,6 +1135,11 @@ pub fn toggle_show_desktop(app: tauri::AppHandle, state: State<AppState>) -> Res
     let revealed = state.platform.toggle_show_desktop()?;
     state_changed(&app);
     Ok(revealed)
+}
+
+#[tauri::command]
+pub fn open_trash(state: State<AppState>) -> Result<(), String> {
+    state.platform.open_trash()
 }
 
 #[tauri::command]

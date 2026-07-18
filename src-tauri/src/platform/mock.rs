@@ -266,6 +266,9 @@ impl ShellPlatform for MockPlatform {
         }
         Ok(())
     }
+    fn open_trash(&self) -> Result<(), String> {
+        Ok(())
+    }
     fn media_control(&self, kind: &str) -> Result<(), String> {
         let mut state = self.state.lock();
         match state.status.now_playing.as_mut() {

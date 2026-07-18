@@ -75,6 +75,13 @@ describe("MockShell interaction contract", () => {
     expect(restored.find((window) => window.id === parked.id)?.parkedWellId).toBe("well-1");
   });
 
+  it("opens the Trash as the tile's primary action", async () => {
+    const shell = new MockShell();
+    const before = shell.snapshot().notifications.length;
+    await shell.actions.openTrash();
+    expect(shell.snapshot().notifications.length).toBe(before + 1);
+  });
+
   it("drives the media session through the transport contract", async () => {
     const shell = new MockShell();
     expect(shell.snapshot().status.nowPlaying?.playing).toBe(true);

@@ -617,6 +617,26 @@ impl ShellPlatform for WindowsPlatform {
         super::media::control(kind)
     }
 
+    fn open_trash(&self) -> Result<(), String> {
+        use windows::core::{w, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let result = unsafe {
+            ShellExecuteW(
+                HWND::default(),
+                w!("open"),
+                w!("shell:RecycleBinFolder"),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result.0 as isize <= 32 {
+            return Err("The Recycle Bin could not be opened".into());
+        }
+        Ok(())
+    }
+
     fn configure_windowing(&self, gap: u32, cycling: bool) {
         self.window_manager.configure(gap, cycling);
     }

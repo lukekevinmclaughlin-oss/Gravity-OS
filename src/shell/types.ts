@@ -217,6 +217,8 @@ export interface ShellActions {
   switchOrbit(id: string): Promise<void>;
   moveWindowToOrbit(windowId: string, orbitId: string): Promise<void>;
   emptyTrash(): Promise<void>;
+  /** Open the Trash (the Recycle Bin) — the Dock tile's primary action. */
+  openTrash(): Promise<void>;
   /** Minimize every unparked window, or restore the set a previous toggle hid.
    *  Resolves true when the desktop was revealed, false when windows returned. */
   toggleShowDesktop(): Promise<boolean>;

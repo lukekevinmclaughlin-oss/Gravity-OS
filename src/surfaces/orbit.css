@@ -755,3 +755,12 @@
     opacity: 0;
   }
 }
+
+/* Trash context menu - the destructive step is visibly armed. */
+.orbitContext .is-danger-armed {
+  background: color-mix(in srgb, var(--danger) 24%, transparent);
+  color: var(--ink);
+}
+.orbitContext .is-danger-armed:hover {
+  background: color-mix(in srgb, var(--danger) 36%, transparent);
+}

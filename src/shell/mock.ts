@@ -443,6 +443,7 @@ export class MockShell implements ShellProviderI {
       });
     },
     emptyTrash: async () => this.patchStatus({ trashFull: false }),
+    openTrash: async () => this.notify("Gravity", "Trash", "Would open the Recycle Bin on Windows."),
     mediaControl: async (kind) => {
       const nowPlaying = this.state.status.nowPlaying;
       if (!nowPlaying) throw new Error("No application is playing media right now");

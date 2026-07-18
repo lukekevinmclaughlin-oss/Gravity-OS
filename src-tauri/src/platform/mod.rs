@@ -42,6 +42,8 @@ pub trait ShellPlatform: Send + Sync {
     fn toggle_show_desktop(&self) -> Result<bool, String>;
     /// Drive the current system media session: play-pause, next, previous.
     fn media_control(&self, kind: &str) -> Result<(), String>;
+    /// Open the Recycle Bin in the file manager (the Dock Trash's click).
+    fn open_trash(&self) -> Result<(), String>;
     fn configure_windowing(&self, gap: u32, cycling: bool);
     fn configure_rules(&self, rules: &[WindowRule]);
     fn configure_ignored(&self, app_ids: &[String]);

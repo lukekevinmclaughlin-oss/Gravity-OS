@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { DeepField } from "./DeepField";
+import { GravityWells } from "./GravityWells";
 import { DemoWindows } from "./DemoWindows";
 import { Horizon } from "./Horizon";
 import { Orbit } from "./Orbit";
@@ -50,6 +51,10 @@ export function Stage() {
   return (
     <div className="stage" style={overlay === "singularity" ? { transform: "scale(1.012)" } : undefined}>
       <DeepField />
+      {/* Production runs Wells in its own region-shaped native window; the
+          composed Stage mounts the same surface so the dev loop and browser
+          tests exercise every well behavior (mock-first product standard). */}
+      <GravityWells />
       <DemoWindows />
       <Horizon
         onOpenCore={() => setOverlay((current) => (current === "core" ? null : "core"))}

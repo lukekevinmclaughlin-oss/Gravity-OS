@@ -96,8 +96,9 @@
     radial-gradient(circle at 28% 18%, color-mix(in srgb, var(--well-color) 70%, white), transparent 42%),
     linear-gradient(145deg, color-mix(in srgb, var(--well-color) 46%, transparent), rgba(6,10,20,.74));
   box-shadow: inset 0 1px 10px rgba(255,255,255,.32), 0 0 24px color-mix(in srgb, var(--well-color) 34%, transparent);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  /* No backdrop-filter here: sampling the backdrop through clip-path'd,
+     continuously rotating 3D faces produces horizontal tearing bands. */
+  backface-visibility: hidden;
 }
 .gravityWell__shape > i:nth-child(1) { transform: rotateY(0deg) translateZ(25px); }
 .gravityWell__shape > i:nth-child(2) { transform: rotateY(90deg) translateZ(25px); filter: brightness(.72); }
@@ -126,6 +127,24 @@
 .gravityWell--helix .gravityWell__shape > i:nth-child(3) { --helix-angle: 120deg; }
 .gravityWell--diamond .gravityWell__shape > i { clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); border-radius: 4px; }
 .gravityWell--star .gravityWell__shape > i { clip-path: polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 94%,50% 72%,21% 94%,32% 57%,2% 35%,39% 35%); border-radius: 3px; }
+/* Clip-path'd kinds: the box-model inset highlight paints as a straight
+   horizontal band through the polygon, and border-radius fights the clip at
+   the tips. The silhouette glow moves to the parent as a drop-shadow. */
+.gravityWell--pyramid .gravityWell__shape > i,
+.gravityWell--prism .gravityWell__shape > i,
+.gravityWell--hexagon .gravityWell__shape > i,
+.gravityWell--diamond .gravityWell__shape > i,
+.gravityWell--star .gravityWell__shape > i {
+  border-radius: 0;
+  box-shadow: none;
+}
+.gravityWell--pyramid .gravityWell__shape,
+.gravityWell--prism .gravityWell__shape,
+.gravityWell--hexagon .gravityWell__shape,
+.gravityWell--diamond .gravityWell__shape,
+.gravityWell--star .gravityWell__shape {
+  filter: drop-shadow(0 0 16px color-mix(in srgb, var(--well-color) 40%, transparent));
+}
 .gravityWell--vortex .gravityWell__shape > i { inset: 14px 0; border-radius: 50% 7% 50% 7%; background: linear-gradient(135deg, color-mix(in srgb, var(--well-color) 55%, transparent), transparent 58%); }
 .gravityWell--vortex .gravityWell__shape > i:nth-child(2) { transform: rotate(60deg) scale(.78); }
 .gravityWell--vortex .gravityWell__shape > i:nth-child(3) { transform: rotate(120deg) scale(.55); }

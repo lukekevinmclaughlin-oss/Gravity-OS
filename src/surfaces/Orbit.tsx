@@ -40,6 +40,7 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
   const [launching, setLaunching] = useState<ReadonlySet<string>>(new Set());
   const [launchErrors, setLaunchErrors] = useState<ReadonlyMap<string, string>>(new Map());
   const [trashArmed, setTrashArmed] = useState(false);
+  const [trashMenu, setTrashMenu] = useState<number | null>(null);
   const [windowDropTarget, setWindowDropTarget] = useState(false);
   const [dockCapture, setDockCapture] = useState(false);
   const [dockRelease, setDockRelease] = useState(false);
@@ -63,7 +64,7 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
   const layoutPositions = useRef(new Map<string, DOMRect>());
   const previousMinimized = useRef<Set<string> | null>(null);
   const dockReleaseTimer = useRef<number | null>(null);
-  const orbitExpanded = menu !== null || draggedWindowId !== null || windowDropTarget || dockCapture || dockRelease;
+  const orbitExpanded = menu !== null || trashMenu !== null || draggedWindowId !== null || windowDropTarget || dockCapture || dockRelease;
   const flashDockRelease = () => {
     if (dockReleaseTimer.current !== null) window.clearTimeout(dockReleaseTimer.current);
     setDockRelease(false);
@@ -82,13 +83,17 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
   }, [orbitExpanded]);
 
   useEffect(() => {
-    if (!menu) return;
+    if (!menu && trashMenu === null) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenu(null);
+      if (event.key === "Escape") {
+        setMenu(null);
+        setTrashMenu(null);
+        setTrashArmed(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menu]);
+  }, [menu, trashMenu]);
 
   // Stop the launch bounce once the app's first window exists.
   useEffect(() => {
@@ -597,7 +602,17 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
         applyMagnify(null);
       }}
     >
-      {menu && <button className="orbitContextDismiss" aria-label="Close app menu" onClick={() => setMenu(null)} />}
+      {(menu || trashMenu !== null) && (
+        <button
+          className="orbitContextDismiss"
+          aria-label="Close menu"
+          onClick={() => {
+            setMenu(null);
+            setTrashMenu(null);
+            setTrashArmed(false);
+          }}
+        />
+      )}
       <span className="orbitCaptureFx" aria-hidden="true">
         <span className="orbitCaptureFx__portal"><i /><i /><i /></span>
         <span className="orbitCaptureFx__beam" />
@@ -794,32 +809,70 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
           else tileRefs.current.delete("__trash");
         }}
         onClick={() => {
-          if (!state.status.trashFull) return;
-          if (trashArmed) {
-            void actions.emptyTrash().catch((error) => setActionError(String(error)));
-            setTrashArmed(false);
-          } else {
-            setTrashArmed(true);
-            window.setTimeout(() => setTrashArmed(false), 3000);
-          }
+          // macOS grammar: clicking the Trash opens it; emptying lives in the
+          // context menu behind a confirm step.
+          setTrashMenu(null);
+          setTrashArmed(false);
+          void actions.openTrash().catch((error) => setActionError(String(error)));
         }}
-        title={
-          !state.status.trashFull
-            ? "Trash is empty"
-            : trashArmed
-              ? "Click again to empty"
-              : "Trash — click to empty"
-        }
+        onContextMenu={(event) => {
+          event.preventDefault();
+          const shelf = event.currentTarget.closest(".orbit")?.getBoundingClientRect();
+          const relative = shelf ? event.clientX - shelf.left : event.clientX;
+          setMenu(null);
+          setTrashArmed(false);
+          setTrashMenu(Math.max(116, Math.min(relative, (shelf?.width ?? 420) - 116)));
+        }}
+        aria-haspopup="menu"
+        title={state.status.trashFull ? "Trash — click to open" : "Trash is empty — click to open"}
       >
-        <span className="orbitItem__label glass-heavy">
-          {trashArmed ? "Click again to empty" : "Trash"}
-        </span>
+        <span className="orbitItem__label glass-heavy">Trash</span>
         <span className={`orbit__trashTile ${trashArmed ? "is-armed" : ""}`}>
           <TrashIcon size={21} />
           {state.status.trashFull && <span className="orbit__trashDot" />}
         </span>
         <span className="orbitItem__dot" />
       </button>
+
+      {trashMenu !== null && (
+        <div
+          className="orbitContext glass-heavy"
+          role="menu"
+          aria-label="Trash actions"
+          style={{ left: trashMenu }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <div className="orbitContext__title">Trash</div>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTrashMenu(null);
+              void actions.openTrash().catch((error) => setActionError(String(error)));
+            }}
+          >
+            <span>Open Trash</span>
+            <small>{state.status.trashFull ? "Contains items" : "Empty"}</small>
+          </button>
+          <button
+            role="menuitem"
+            disabled={!state.status.trashFull}
+            className={trashArmed ? "is-danger-armed" : ""}
+            onClick={() => {
+              if (!trashArmed) {
+                setTrashArmed(true);
+                window.setTimeout(() => setTrashArmed(false), 4000);
+                return;
+              }
+              setTrashArmed(false);
+              setTrashMenu(null);
+              void actions.emptyTrash().catch((error) => setActionError(String(error)));
+            }}
+          >
+            <span>{trashArmed ? "Confirm Empty Trash" : "Empty Trash…"}</span>
+            {trashArmed && <small>Click again</small>}
+          </button>
+        </div>
+      )}
 
       {menu && menuApp && (
         <div
