@@ -66,10 +66,16 @@ export interface DesktopPreferences {
   reduceTransparency: boolean;
 }
 
+export interface SearchPreferences {
+  /** User abbreviations expanded into Singularity commands, e.g. tl → "snap left-half". */
+  quickKeys: Record<string, string>;
+}
+
 export interface PersonalizationPreferences {
   dock: DockPreferences;
   wallpaper: WallpaperPreferences;
   desktop: DesktopPreferences;
+  search: SearchPreferences;
 }
 
 export const PERSONALIZATION_STORAGE_KEY = "gravity.personalization.v1";
@@ -105,6 +111,9 @@ export const DEFAULT_PERSONALIZATION: PersonalizationPreferences = {
     accent: "graviton",
     reduceTransparency: false,
   },
+  search: {
+    quickKeys: {},
+  },
 };
 
 const clamp = (value: unknown, min: number, max: number, fallback: number) => {
@@ -118,6 +127,13 @@ export function readPersonalization(): PersonalizationPreferences {
     const dock = (parsed?.dock ?? {}) as Partial<DockPreferences>;
     const wallpaper = (parsed?.wallpaper ?? {}) as Partial<WallpaperPreferences>;
     const desktop = (parsed?.desktop ?? {}) as Partial<DesktopPreferences>;
+    const search = (parsed?.search ?? {}) as Partial<SearchPreferences>;
+    const quickKeys: Record<string, string> = {};
+    for (const [key, value] of Object.entries(search.quickKeys ?? {}).slice(0, 24)) {
+      if (/^[a-z0-9]{1,12}$/i.test(key) && typeof value === "string" && value.trim().length > 0 && value.length <= 64) {
+        quickKeys[key.toLocaleLowerCase()] = value.trim();
+      }
+    }
     return {
       dock: {
         size: clamp(dock.size, 38, 72, DEFAULT_PERSONALIZATION.dock.size),
@@ -152,6 +168,7 @@ export function readPersonalization(): PersonalizationPreferences {
           : DEFAULT_PERSONALIZATION.desktop.accent,
         reduceTransparency: desktop.reduceTransparency === true,
       },
+      search: { quickKeys },
     };
   } catch {
     return structuredClone(DEFAULT_PERSONALIZATION);

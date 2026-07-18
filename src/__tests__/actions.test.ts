@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commandResults } from "../lib/actions";
+import { commandResults, quickKeyResults } from "../lib/actions";
 import type { ActionContext } from "../lib/actions";
 import { MockShell } from "../shell/mock";
 import type { ShellActions } from "../shell/types";
@@ -43,6 +43,17 @@ describe("Singularity command registry", () => {
     const results = commandResults("orbit", context);
     expect(results.length).toBe(context.state.orbits.length);
     expect(results[0].title).toContain(context.state.orbits[0].name);
+  });
+
+  it("expands Quick Keys into badged, runnable registry results", async () => {
+    const windowActionFor = vi.fn(async () => undefined);
+    const context = { ...makeContext({ actions: { windowActionFor } as unknown as ShellActions }), targetWindowId: "w9" };
+    const results = quickKeyResults("tl", { tl: "snap left-half" }, context);
+    expect(results).toHaveLength(1);
+    expect(results[0].sub).toContain("Quick Key");
+    await results[0].run();
+    expect(windowActionFor).toHaveBeenCalledWith("w9", "left-half");
+    expect(quickKeyResults("nope", { tl: "snap left-half" }, context)).toHaveLength(0);
   });
 
   it("offers a template completion for a partial verb", async () => {

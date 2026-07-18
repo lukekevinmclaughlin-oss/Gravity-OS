@@ -143,3 +143,72 @@
 .customization__accents .is-auto {
   background: conic-gradient(#3a7bfd, #31c48d, #e0a52e, #f4573f, #e5478f, #8a63f0, #3a7bfd);
 }
+
+/* Quick Keys editor (NS-6.3) */
+.customization__quickKeys {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.customization__quickKey {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: var(--glass-bg-lift);
+}
+.customization__quickKey code {
+  min-width: 44px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: 650 11px var(--font-mono);
+  text-align: center;
+}
+.customization__quickKey span {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font: 500 12px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.customization__quickKey button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--ink-faint);
+}
+.customization__quickKey button:hover {
+  background: var(--glass-bg-lift);
+  color: var(--ink);
+}
+.customization__quickKeyAdd {
+  display: flex;
+  gap: 8px;
+}
+.customization__quickKeyAdd input {
+  padding: 7px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 9px;
+  background: var(--glass-bg-lift);
+  color: var(--ink);
+  font: 500 12px var(--font-ui);
+}
+.customization__quickKeyAdd input:first-child {
+  width: 76px;
+}
+.customization__quickKeyAdd input:nth-child(2) {
+  flex: 1;
+}
+.customization__quickKeyAdd button {
+  padding: 7px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: 600 12px var(--font-ui);
+}

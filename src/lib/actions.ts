@@ -227,6 +227,21 @@ const SIMPLE_COMMANDS: Array<{ id: string; title: string; sub: string; run(conte
   },
 ];
 
+/** Quick Keys (NS-6.3): an exact abbreviation expands into its stored command
+ *  and runs the registry against the expansion, badged so the origin is clear. */
+export function quickKeyResults(
+  query: string,
+  quickKeys: Record<string, string>,
+  context: ActionContext,
+): CommandResult[] {
+  const expansion = quickKeys[query.trim().toLocaleLowerCase()];
+  if (!expansion) return [];
+  return commandResults(expansion, context).map((result) => ({
+    ...result,
+    sub: `Quick Key → ${expansion}`,
+  }));
+}
+
 /** Rank the registry against a query. Verb-prefixed queries expand a
  *  command's parameter space; anything else fuzzy-matches titles. */
 export function commandResults(query: string, context: ActionContext): CommandResult[] {

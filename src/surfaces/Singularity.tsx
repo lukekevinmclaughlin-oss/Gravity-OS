@@ -3,7 +3,8 @@ import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { ConstellationIcon, MoonIcon, SearchIcon, SunIcon, TrashIcon } from "../components/Icons";
 import { evaluate, formatNumber, looksLikeMath, rank } from "../lib/search";
-import { commandResults } from "../lib/actions";
+import { commandResults, quickKeyResults } from "../lib/actions";
+import { usePersonalization } from "../lib/customization";
 import { isAppRunning } from "../shell/types";
 import "./singularity.css";
 
@@ -47,6 +48,7 @@ const SETTINGS_LINKS: Array<{ title: string; uri: string }> = [
 
 export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme }: SingularityProps) {
   const { state, actions } = useShell();
+  const [personalization] = usePersonalization();
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +68,33 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
 
   const results = useMemo<Result[]>(() => {
     const out: Result[] = [];
+    const registryContext = {
+      state,
+      actions,
+      targetWindowId: targetWindowRef.current,
+      toggleTheme: onToggleTheme,
+      openConstellation: onOpenConstellation,
+    };
+
+    // Quick Keys outrank everything: an exact abbreviation is deliberate.
+    for (const command of quickKeyResults(query, personalization.search.quickKeys, registryContext).slice(0, 4)) {
+      out.push({
+        id: `qk-${command.id}`,
+        kind: "action",
+        title: command.title,
+        sub: command.sub,
+        icon: <SearchIcon size={17} />,
+        run: async () => {
+          const next = await command.run();
+          if (typeof next === "string") {
+            setQuery(next);
+            requestAnimationFrame(() => inputRef.current?.focus());
+            return;
+          }
+          onClose();
+        },
+      });
+    }
 
     if (looksLikeMath(query)) {
       const value = evaluate(query);
@@ -207,13 +236,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
     // Command registry (NS-6.2): verb phrases with typed parameters —
     // `accent coral`, `volume 40`, `snap left-half`, `scene <name>`.
     // A run() that resolves to a string completes the query instead of closing.
-    for (const command of commandResults(query, {
-      state,
-      actions,
-      targetWindowId: targetWindowRef.current,
-      toggleTheme: onToggleTheme,
-      openConstellation: onOpenConstellation,
-    }).slice(0, 6)) {
+    for (const command of commandResults(query, registryContext).slice(0, 6)) {
       out.push({
         id: `cmd-${command.id}`,
         kind: "action",
@@ -250,7 +273,7 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
     }
 
     return out;
-  }, [query, state, actions, onClose, onOpenConstellation, onToggleTheme]);
+  }, [query, state, actions, onClose, onOpenConstellation, onToggleTheme, personalization.search.quickKeys]);
 
   useEffect(() => {
     setSel((s) => Math.min(s, Math.max(0, results.length - 1)));

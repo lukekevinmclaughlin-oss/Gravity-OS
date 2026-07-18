@@ -233,6 +233,45 @@ export function CustomizationCenter({ open, onClose }: CustomizationCenterProps)
                 </section>
 
                 <section className="customization__section">
+                  <div className="customization__title"><span><strong>Singularity Quick Keys</strong><small>Abbreviations that expand into commands, e.g. tl → snap left-half</small></span></div>
+                  <div className="customization__quickKeys">
+                    {Object.entries(preferences.search.quickKeys).map(([key, expansion]) => (
+                      <div className="customization__quickKey" key={key}>
+                        <code>{key}</code>
+                        <span>{expansion}</span>
+                        <button aria-label={`Remove Quick Key ${key}`} onClick={() => {
+                          const next = { ...preferences.search.quickKeys };
+                          delete next[key];
+                          setPreferences((current) => ({ ...current, search: { quickKeys: next } }));
+                        }}>✕</button>
+                      </div>
+                    ))}
+                    <form
+                      className="customization__quickKeyAdd"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const data = new FormData(event.currentTarget);
+                        const key = String(data.get("key") ?? "").trim().toLocaleLowerCase();
+                        const expansion = String(data.get("expansion") ?? "").trim();
+                        if (!/^[a-z0-9]{1,12}$/.test(key) || !expansion || expansion.length > 64) {
+                          setMessage("Quick Keys need a short alphanumeric key and a command up to 64 characters.");
+                          return;
+                        }
+                        setPreferences((current) => ({
+                          ...current,
+                          search: { quickKeys: { ...current.search.quickKeys, [key]: expansion } },
+                        }));
+                        event.currentTarget.reset();
+                      }}
+                    >
+                      <input name="key" placeholder="tl" maxLength={12} aria-label="Quick Key abbreviation" />
+                      <input name="expansion" placeholder="snap left-half" maxLength={64} aria-label="Quick Key command" />
+                      <button type="submit">Add</button>
+                    </form>
+                  </div>
+                </section>
+
+                <section className="customization__section">
                   <div className="customization__title"><span><strong>Snap every window to a grid</strong><small>Applies a real native frame to each open application window</small></span><GridIcon size={18} /></div>
                   <div className="customization__layoutGrid">
                     {GRID_LAYOUTS.map((layout) => <button key={layout.id} disabled={busy} onClick={() => void applyLayout(layout.id)}><span className={`layoutGlyph is-${layout.id}`}>{Array.from({ length: layout.id === "nine-grid" ? 9 : layout.id === "six-pack" ? 6 : layout.id === "quarters" ? 4 : 3 }, (_, index) => <i key={index} />)}</span><strong>{layout.name}</strong><small>{layout.description}</small></button>)}
