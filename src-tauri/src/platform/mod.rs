@@ -40,6 +40,8 @@ pub trait ShellPlatform: Send + Sync {
     /// Minimize every unparked window, or restore the set a previous toggle
     /// hid. Returns true when the desktop was revealed.
     fn toggle_show_desktop(&self) -> Result<bool, String>;
+    /// Drive the current system media session: play-pause, next, previous.
+    fn media_control(&self, kind: &str) -> Result<(), String>;
     fn configure_windowing(&self, gap: u32, cycling: bool);
     fn configure_rules(&self, rules: &[WindowRule]);
     fn configure_ignored(&self, app_ids: &[String]);
@@ -80,6 +82,8 @@ mod brightness;
 pub mod events;
 #[cfg(windows)]
 pub mod input;
+#[cfg(windows)]
+pub mod media;
 #[cfg(windows)]
 mod network;
 #[cfg(windows)]

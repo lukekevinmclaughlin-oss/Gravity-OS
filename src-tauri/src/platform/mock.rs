@@ -5,8 +5,8 @@ use parking_lot::Mutex;
 
 use super::ShellPlatform;
 use crate::shell::{
-    AppInfo, AppearanceState, OrbitSpace, SceneFrame, SceneWindow, ShellMode, ShellState,
-    SystemStatus, WindowInfo, WindowRule, WindowScene, WindowingState,
+    AppInfo, AppearanceState, NowPlaying, OrbitSpace, SceneFrame, SceneWindow, ShellMode,
+    ShellState, SystemStatus, WindowInfo, WindowRule, WindowScene, WindowingState,
 };
 
 pub struct MockPlatform {
@@ -58,6 +58,12 @@ impl MockPlatform {
                 brightness: Some(0.8),
                 bluetooth: true,
                 trash_full: true,
+                now_playing: Some(NowPlaying {
+                    title: "Deep Field Radio".into(),
+                    artist: "Gravity".into(),
+                    playing: true,
+                    source_app: "music".into(),
+                }),
                 ..Default::default()
             },
             orbits: vec![
@@ -259,6 +265,20 @@ impl ShellPlatform for MockPlatform {
             window.parked_well_id = None;
         }
         Ok(())
+    }
+    fn media_control(&self, kind: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        match state.status.now_playing.as_mut() {
+            Some(now_playing) => match kind {
+                "play-pause" => {
+                    now_playing.playing = !now_playing.playing;
+                    Ok(())
+                }
+                "next" | "previous" => Ok(()),
+                _ => Err("Unknown media control".into()),
+            },
+            None => Err("No application is playing media right now".into()),
+        }
     }
     fn toggle_show_desktop(&self) -> Result<bool, String> {
         let mut state = self.state.lock();

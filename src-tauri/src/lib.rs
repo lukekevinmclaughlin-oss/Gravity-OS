@@ -630,6 +630,7 @@ pub fn run() {
             commands::release_window,
             commands::release_all_parked_windows,
             commands::toggle_show_desktop,
+            commands::media_control,
             commands::register_desktop_wells,
             commands::set_well_surface_expanded,
             commands::set_pulse_interaction_region,
@@ -682,6 +683,7 @@ pub fn run() {
                 register_surface_appbars(_app.handle());
                 platform::snap::start(_app.handle().clone());
                 platform::events::start(_app.handle().clone());
+                platform::media::watch_changes();
                 start_scene_auto_restore(_app.handle().clone());
                 setup_tray(_app)?;
             }

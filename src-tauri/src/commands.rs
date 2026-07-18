@@ -1119,6 +1119,20 @@ pub fn toggle_show_desktop(app: tauri::AppHandle, state: State<AppState>) -> Res
 }
 
 #[tauri::command]
+pub fn media_control(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    kind: String,
+) -> Result<(), String> {
+    if !matches!(kind.as_str(), "play-pause" | "next" | "previous") {
+        return Err("Unknown media control".into());
+    }
+    state.platform.media_control(&kind)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn launch_app(
     app: tauri::AppHandle,
     state: State<AppState>,

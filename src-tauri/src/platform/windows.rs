@@ -321,6 +321,7 @@ impl ShellPlatform for WindowsPlatform {
             focus: inner.focus,
             bluetooth: inner.bluetooth_on,
             trash_full: recycle_bin_full(),
+            now_playing: super::media::now_playing(),
             ..Default::default()
         };
         power_status(&mut status);
@@ -610,6 +611,10 @@ impl ShellPlatform for WindowsPlatform {
         }
         self.inner.lock().show_desktop_stack = targets;
         Ok(true)
+    }
+
+    fn media_control(&self, kind: &str) -> Result<(), String> {
+        super::media::control(kind)
     }
 
     fn configure_windowing(&self, gap: u32, cycling: bool) {

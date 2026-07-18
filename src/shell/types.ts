@@ -22,6 +22,15 @@ export interface WindowInfo {
   parkedWellId?: string;
 }
 
+export interface NowPlaying {
+  title: string;
+  artist: string;
+  playing: boolean;
+  sourceApp: string;
+}
+
+export type MediaControlKind = "play-pause" | "next" | "previous";
+
 export interface SystemStatus {
   batteryPercent: number | null;
   charging: boolean;
@@ -34,6 +43,8 @@ export interface SystemStatus {
   focus: boolean;
   bluetooth: boolean;
   trashFull: boolean;
+  /** The system media session, absent when nothing is playing. */
+  nowPlaying?: NowPlaying;
 }
 
 export interface OrbitSpace {
@@ -209,6 +220,8 @@ export interface ShellActions {
   /** Minimize every unparked window, or restore the set a previous toggle hid.
    *  Resolves true when the desktop was revealed, false when windows returned. */
   toggleShowDesktop(): Promise<boolean>;
+  /** Drive the current system media session (SMTC on Windows). */
+  mediaControl(kind: MediaControlKind): Promise<void>;
   /** Real session actions; the development shell presents a visible simulation. */
   powerAction(kind: PowerKind): Promise<void>;
   /** Synthesize an edit chord into the currently focused foreign window. */

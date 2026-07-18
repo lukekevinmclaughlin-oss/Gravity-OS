@@ -97,10 +97,31 @@ export function Core({ open, onClose, onToggleTheme, daybreak }: CoreProps) {
 
   const pct = (v: number) => `${Math.round(v * 100)}%`;
 
+  const media = (kind: "play-pause" | "next" | "previous") => {
+    setError(null);
+    void actions.mediaControl(kind).catch((reason) => setError(String(reason)));
+  };
+
   return (
     <>
       <div className="core__scrim" onClick={onClose} />
       <div className="core glass-heavy lens">
+        {s.nowPlaying && (
+          <div className="core__nowPlaying" aria-label="Now playing">
+            <span className="core__nowPlayingPulse" data-playing={s.nowPlaying.playing} aria-hidden="true"><i /><i /><i /></span>
+            <span className="core__nowPlayingText">
+              <span className="core__nowPlayingTitle">{s.nowPlaying.title}</span>
+              {s.nowPlaying.artist && <span className="core__nowPlayingArtist">{s.nowPlaying.artist}</span>}
+            </span>
+            <span className="core__transport">
+              <button aria-label="Previous track" onClick={() => media("previous")}>⏮</button>
+              <button aria-label={s.nowPlaying.playing ? "Pause" : "Play"} className="is-primary" onClick={() => media("play-pause")}>
+                {s.nowPlaying.playing ? "⏸" : "⏵"}
+              </button>
+              <button aria-label="Next track" onClick={() => media("next")}>⏭</button>
+            </span>
+          </div>
+        )}
         <div className="core__grid">
           {toggles.map((t) => (
             <button

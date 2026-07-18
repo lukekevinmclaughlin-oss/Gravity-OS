@@ -75,6 +75,20 @@ describe("MockShell interaction contract", () => {
     expect(restored.find((window) => window.id === parked.id)?.parkedWellId).toBe("well-1");
   });
 
+  it("drives the media session through the transport contract", async () => {
+    const shell = new MockShell();
+    expect(shell.snapshot().status.nowPlaying?.playing).toBe(true);
+
+    await shell.actions.mediaControl("play-pause");
+    expect(shell.snapshot().status.nowPlaying?.playing).toBe(false);
+
+    const before = shell.snapshot().status.nowPlaying!.title;
+    await shell.actions.mediaControl("next");
+    const after = shell.snapshot().status.nowPlaying!;
+    expect(after.playing).toBe(true);
+    expect(after.title).not.toBe(before);
+  });
+
   it("routes Horizon controls through the active-window contract", async () => {
     const shell = new MockShell();
     const target = shell.snapshot().windows.find((window) => window.focused)!;

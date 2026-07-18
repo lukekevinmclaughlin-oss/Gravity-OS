@@ -20,6 +20,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 static DIRTY: AtomicBool = AtomicBool::new(false);
 static SHELL_ACTIVE: AtomicBool = AtomicBool::new(true);
 
+/// Other native sources (media sessions, listeners) can fold their change
+/// signals into the same debounced push.
+pub fn mark_dirty() {
+    DIRTY.store(true, Ordering::Relaxed);
+}
+
 /// Pushes stop while Gravity is handed off to Windows 11 so hidden surfaces
 /// do not refetch state on every foreign window churn.
 pub fn set_shell_active(active: bool) {

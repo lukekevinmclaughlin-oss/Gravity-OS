@@ -181,6 +181,7 @@ export class TauriShell implements ShellProviderI {
       this.call<void>("move_window_to_orbit", { windowId, orbitId }).then(() => this.refresh()),
     emptyTrash: () => this.mutate<void>("empty_trash"),
     toggleShowDesktop: () => this.mutate<boolean>("toggle_show_desktop"),
+    mediaControl: (kind) => this.mutate<void>("media_control", { kind }),
     powerAction: (kind) => this.call<void>("power_action", { kind }),
     editAction: (kind, targetWindowId) =>
       this.call<void>("edit_action", { kind, targetWindowId }),

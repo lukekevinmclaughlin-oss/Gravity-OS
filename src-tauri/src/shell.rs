@@ -85,6 +85,15 @@ pub struct WindowInfo {
     pub parked_well_id: Option<String>,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NowPlaying {
+    pub title: String,
+    pub artist: String,
+    pub playing: bool,
+    pub source_app: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemStatus {
@@ -97,6 +106,8 @@ pub struct SystemStatus {
     pub focus: bool,
     pub bluetooth: bool,
     pub trash_full: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub now_playing: Option<NowPlaying>,
 }
 
 impl Default for SystemStatus {
@@ -111,6 +122,7 @@ impl Default for SystemStatus {
             focus: false,
             bluetooth: false,
             trash_full: false,
+            now_playing: None,
         }
     }
 }

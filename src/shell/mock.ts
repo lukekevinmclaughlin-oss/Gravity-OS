@@ -69,6 +69,12 @@ export class MockShell implements ShellProviderI {
       focus: false,
       bluetooth: true,
       trashFull: true,
+      nowPlaying: {
+        title: "Event Horizon",
+        artist: "Deep Field Radio",
+        playing: true,
+        sourceApp: "music",
+      },
     },
     orbits: [
       { id: "o1", name: "Orbit 1" },
@@ -437,6 +443,18 @@ export class MockShell implements ShellProviderI {
       });
     },
     emptyTrash: async () => this.patchStatus({ trashFull: false }),
+    mediaControl: async (kind) => {
+      const nowPlaying = this.state.status.nowPlaying;
+      if (!nowPlaying) throw new Error("No application is playing media right now");
+      if (kind === "play-pause") {
+        this.patchStatus({ nowPlaying: { ...nowPlaying, playing: !nowPlaying.playing } });
+      } else {
+        const direction = kind === "next" ? 1 : -1;
+        const stations = ["Event Horizon", "Aurora Drift", "Parallax", "Deep Field"];
+        const index = (stations.indexOf(nowPlaying.title) + direction + stations.length) % stations.length;
+        this.patchStatus({ nowPlaying: { ...nowPlaying, title: stations[index], playing: true } });
+      }
+    },
     toggleShowDesktop: async () => {
       const stack = this.showDesktopStack;
       const restorable = stack?.filter((id) =>
