@@ -15,8 +15,10 @@ export function ShellRoot({ children }: { children: ReactNode }) {
   const provider = useMemo(() => {
     if (!isTauri()) return new MockShell();
     const surface = new URLSearchParams(window.location.search).get("surface");
-    // Wallpaper polls slowly; settings mutations refresh it immediately.
-    return new TauriShell(surface === "deepfield" ? 5000 : 1000);
+    // The WinEvent fabric pushes gravity://state-changed on every window
+    // change (NS-3.1); the interval is only a reconciliation sweep now, and
+    // the wallpaper reconciles even more lazily.
+    return new TauriShell(surface === "deepfield" ? 60000 : 15000);
   }, []);
   const state = useSyncExternalStore(
     (cb) => provider.subscribe(cb),

@@ -85,6 +85,8 @@ mod notifications;
 #[cfg(windows)]
 mod radio;
 #[cfg(windows)]
+pub mod events;
+#[cfg(windows)]
 pub mod shell_control;
 #[cfg(windows)]
 pub mod snap;

@@ -450,6 +450,8 @@ pub(crate) fn set_shell_active_impl(
         };
     }
     let _ = app.emit("gravity://state-changed", ());
+    #[cfg(windows)]
+    platform::events::set_shell_active(active);
 
     let mut failures = Vec::new();
     if active {
@@ -679,6 +681,7 @@ pub fn run() {
                 setup_shell(_app)?;
                 register_surface_appbars(_app.handle());
                 platform::snap::start(_app.handle().clone());
+                platform::events::start(_app.handle().clone());
                 start_scene_auto_restore(_app.handle().clone());
                 setup_tray(_app)?;
             }
