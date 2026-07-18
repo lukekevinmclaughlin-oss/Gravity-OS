@@ -5,6 +5,7 @@ import { GridIcon, SunIcon, TrashIcon, WindowsIcon } from "../components/Icons";
 import { isAppRunning, windowsOf } from "../shell/types";
 import { reorderPinnedIds } from "../lib/dock";
 import { fitOrbitWindow, growOrbitWindow, openOverlay } from "../lib/win";
+import { isTauri } from "../shell/tauri";
 import "./orbit.css";
 
 /** Orbit — Gravity's dock, with true magnification (spec §4):
@@ -38,7 +39,12 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   const [trashArmed, setTrashArmed] = useState(false);
   const [menu, setMenu] = useState<OrbitMenuState | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [fileDropAppId, setFileDropAppId] = useState<string | null>(null);
+  const [fileDropCount, setFileDropCount] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
+  const pointerDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressClick = useRef<string | null>(null);
 
   useEffect(() => {
     void growOrbitWindow(menu !== null);
@@ -68,11 +74,53 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
     ...state.apps.filter((a) => a.pinned),
     ...state.apps.filter((a) => !a.pinned && isAppRunning(state, a.id)),
   ];
+  const minimizedWindows = state.windows.filter((window) => window.minimized);
   const pinnedIds = state.apps.filter((app) => app.pinned).map((app) => app.id);
 
   useEffect(() => {
-    void fitOrbitWindow(items.length);
-  }, [items.length]);
+    void fitOrbitWindow(items.length + minimizedWindows.length);
+  }, [items.length, minimizedWindows.length]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+      const current = getCurrentWindow();
+      const scale = await current.scaleFactor();
+      const appAt = (x: number, y: number) =>
+        document
+          .elementFromPoint(x / scale, y / scale)
+          ?.closest<HTMLElement>("[data-orbit-app-id]")
+          ?.dataset.orbitAppId ?? null;
+      const stop = await current.onDragDropEvent(({ payload }) => {
+        if (payload.type === "leave") {
+          setFileDropAppId(null);
+          setFileDropCount(0);
+          return;
+        }
+        const target = appAt(payload.position.x, payload.position.y);
+        setFileDropAppId(target);
+        if (payload.type === "enter") setFileDropCount(payload.paths.length);
+        if (payload.type !== "drop") return;
+        const paths = payload.paths;
+        setFileDropCount(0);
+        setFileDropAppId(null);
+        if (!target) {
+          setActionError("Drop files directly onto an application in Orbit.");
+          return;
+        }
+        void actions.launchAppWithFiles(target, paths)
+          .catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
+      });
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch((error) => setActionError(`File drop could not start: ${String(error)}`));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [actions]);
 
   const applyMagnify = (mouseX: number | null) => {
     for (const el of tileRefs.current.values()) {
@@ -87,6 +135,10 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   };
 
   const onAppClick = async (appId: string) => {
+    if (suppressClick.current === appId) {
+      suppressClick.current = null;
+      return;
+    }
     const wins = windowsOf(state, appId);
     if (wins.length === 0) {
       setLaunching((prev) => new Set(prev).add(appId));
@@ -130,11 +182,92 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
     setMenu({ appId, left: Math.max(116, Math.min(relative, (shelf?.width ?? 420) - 116)) });
   };
 
-  const reorder = async (targetId: string) => {
-    if (!draggedId) return;
-    const next = reorderPinnedIds(pinnedIds, draggedId, targetId);
+  const reorder = async (targetId: string, requestedSource?: string) => {
+    const sourceId = requestedSource ?? pointerDrag.current?.id ?? draggedId;
+    if (!sourceId) return;
+    const next = reorderPinnedIds(pinnedIds, sourceId, targetId);
     setDraggedId(null);
+    setDragOverId(null);
     if (next !== pinnedIds) await actions.reorderPinnedApps(next);
+  };
+
+  const beginReorder = (event: React.PointerEvent<HTMLButtonElement>, appId: string, pinned: boolean) => {
+    if (event.pointerType === "mouse" || !pinned || event.button !== 0) return;
+    pointerDrag.current = { id: appId, startX: event.clientX, startY: event.clientY, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveReorder = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = pointerDrag.current;
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 6) {
+      drag.moved = true;
+      setDraggedId(drag.id);
+    }
+    if (!drag.moved) return;
+    const target = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-orbit-app-id]")
+      ?.dataset.orbitAppId ?? null;
+    setDragOverId(target && pinnedIds.includes(target) ? target : null);
+  };
+
+  const finishReorder = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = pointerDrag.current;
+    if (!drag) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (drag.moved) {
+      suppressClick.current = drag.id;
+      const candidate = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>("[data-orbit-app-id]")
+        ?.dataset.orbitAppId ?? null;
+      const target = candidate && pinnedIds.includes(candidate) ? candidate : dragOverId;
+      if (target) void reorder(target).catch((error) => setActionError(String(error)));
+      else {
+        setDraggedId(null);
+        setDragOverId(null);
+      }
+    }
+    pointerDrag.current = null;
+  };
+
+  const beginMouseReorder = (event: React.MouseEvent<HTMLButtonElement>, appId: string, pinned: boolean) => {
+    if (!pinned || event.button !== 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let moved = false;
+    const appAt = (next: MouseEvent) =>
+      document
+        .elementFromPoint(next.clientX, next.clientY)
+        ?.closest<HTMLElement>("[data-orbit-app-id]")
+        ?.dataset.orbitAppId ?? null;
+    const move = (next: MouseEvent) => {
+      if (!moved && Math.hypot(next.clientX - startX, next.clientY - startY) > 6) {
+        moved = true;
+        setDraggedId(appId);
+      }
+      if (!moved) return;
+      const target = appAt(next);
+      setDragOverId(target && pinnedIds.includes(target) ? target : null);
+    };
+    const finish = (next: MouseEvent) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", finish);
+      if (!moved) return;
+      suppressClick.current = appId;
+      const candidate = appAt(next);
+      const target = candidate && pinnedIds.includes(candidate) ? candidate : null;
+      if (target) void reorder(target, appId).catch((error) => setActionError(String(error)));
+      else {
+        setDraggedId(null);
+        setDragOverId(null);
+      }
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", finish, { once: true });
   };
 
   const menuApp = menu ? state.apps.find((app) => app.id === menu.appId) : undefined;
@@ -165,27 +298,33 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
         return (
           <button
             key={app.id}
-            className={`orbitItem ${launchErrors.has(app.id) ? "is-error" : ""}`}
+            className={`orbitItem ${launchErrors.has(app.id) ? "is-error" : ""} ${draggedId === app.id ? "is-reordering" : ""} ${dragOverId === app.id ? "is-reorder-target" : ""} ${fileDropAppId === app.id ? "is-file-target" : ""}`}
             style={{ width: BASE }}
             aria-label={app.name}
+            data-orbit-app-id={app.id}
             ref={(el) => {
               if (el) tileRefs.current.set(app.id, el);
               else tileRefs.current.delete(app.id);
             }}
             onClick={() => void onAppClick(app.id)}
             title={launchErrors.get(app.id)}
-            draggable={app.pinned}
-            onDragStart={() => setDraggedId(app.id)}
-            onDragEnd={() => setDraggedId(null)}
-            onDragOver={(event) => {
-              if (app.pinned && draggedId) event.preventDefault();
+            onMouseDown={(event) => beginMouseReorder(event, app.id, app.pinned)}
+            onPointerDown={(event) => beginReorder(event, app.id, app.pinned)}
+            onPointerMove={moveReorder}
+            onPointerUp={finishReorder}
+            onPointerCancel={() => {
+              pointerDrag.current = null;
+              setDraggedId(null);
+              setDragOverId(null);
             }}
-            onDrop={() => void reorder(app.id)}
             onContextMenu={(event) => openAppMenu(event, app.id)}
           >
             <span className="orbitItem__label glass-heavy">{app.name}</span>
             <span className={`orbitItem__tileWrap ${launching.has(app.id) ? "is-launching" : ""}`}>
               <AppTile name={app.name} hue={app.hue} appId={app.id} fill />
+              {fileDropAppId === app.id && (
+                <span className="orbitItem__dropBadge">Open {fileDropCount || ""}</span>
+              )}
             </span>
             <span className={`orbitItem__dot ${running ? "is-running" : ""}`} />
           </button>
@@ -197,6 +336,37 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
       </span>
 
       <span className="orbit__sep" />
+
+      {minimizedWindows.map((window) => {
+        const app = state.apps.find((item) => item.id === window.appId);
+        const name = app?.name ?? window.title;
+        const hue = app?.hue ?? 222;
+        return (
+          <button
+            key={`window-${window.id}`}
+            className="orbitItem orbitWindow"
+            style={{ width: BASE }}
+            aria-label={`Restore ${window.title}`}
+            ref={(element) => {
+              const key = `window:${window.id}`;
+              if (element) tileRefs.current.set(key, element);
+              else tileRefs.current.delete(key);
+            }}
+            onClick={() => void actions.focusWindow(window.id).catch((error) => setActionError(String(error)))}
+            onContextMenu={(event) => openAppMenu(event, window.appId)}
+          >
+            <span className="orbitItem__label glass-heavy">{window.title}</span>
+            <span className="orbitWindow__preview">
+              <span className="orbitWindow__bar"><i /><i /><i /></span>
+              <span className="orbitWindow__body">
+                <AppTile name={name} hue={hue} size={19} appId={app?.id} />
+                <span>{window.title}</span>
+              </span>
+            </span>
+            <span className="orbitItem__dot is-minimized" />
+          </button>
+        );
+      })}
 
       <button
         className="orbitItem orbit__utility orbit__windows"
@@ -302,9 +472,25 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
           onContextMenu={(event) => event.preventDefault()}
         >
           <div className="orbitContext__title">{menuApp.name}</div>
-          <button role="menuitem" onClick={() => { setMenu(null); void onAppClick(menuApp.id); }}>
-            {menuWindows.length ? "Show" : "Open"}
-          </button>
+          {menuWindows.map((window) => (
+            <button
+              key={window.id}
+              className="orbitContext__window"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                void actions.focusWindow(window.id).catch((error) => setActionError(String(error)));
+              }}
+            >
+              <span>{window.title}</span>
+              <small>{window.minimized ? "Minimized" : window.focused ? "Active" : "Open"}</small>
+            </button>
+          ))}
+          {menuWindows.length === 0 && (
+            <button role="menuitem" onClick={() => { setMenu(null); void onAppClick(menuApp.id); }}>
+              Open
+            </button>
+          )}
           <button role="menuitem" onClick={() => {
             setMenu(null);
             void actions.launchApp(menuApp.id).catch((error) => setActionError(String(error)));

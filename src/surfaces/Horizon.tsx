@@ -58,11 +58,13 @@ export function Horizon({
 }: HorizonProps) {
   const { state, actions } = useShell();
   const [open, setOpen] = useState<string | null>(null);
+  const [windowPalette, setWindowPalette] = useState(false);
   const [confirmPower, setConfirmPower] = useState<"restart" | "shutdown" | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [shellBusy, setShellBusy] = useState(false);
   const openRef = useRef(open);
   const targetRef = useRef<(typeof state.windows)[number] | undefined>(undefined);
+  const paletteTimer = useRef<number | null>(null);
   openRef.current = open;
   const clock = useClock();
 
@@ -74,12 +76,12 @@ export function Horizon({
   // Resize to the rendered popup only. The former monitor-height transparent
   // window was able to swallow clicks from every application beneath it.
   useEffect(() => {
-    if (!open && !confirmPower) {
+    if (!open && !confirmPower && !windowPalette) {
       void growHorizonWindow(false);
       return;
     }
     const frame = requestAnimationFrame(() => {
-      const popup = document.querySelector<HTMLElement>(".hzMenu, .hzConfirm");
+      const popup = document.querySelector<HTMLElement>(".hzMenu, .hzConfirm, .hzWindowPalette");
       // The closed native window is only 34px tall, so getBoundingClientRect
       // reports the viewport-clipped menu and creates a 34 -> 55px feedback
       // loop. scrollHeight preserves the full menu content even while clipped.
@@ -89,15 +91,16 @@ export function Horizon({
       void growHorizonWindow(true, needed);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, confirmPower]);
+  }, [open, confirmPower, windowPalette]);
 
   useEffect(() => {
-    if (!open && !confirmPower) return;
+    if (!open && !confirmPower && !windowPalette) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(null);
         setConfirmPower(null);
+        setWindowPalette(false);
         return;
       }
       if (!open) return;
@@ -115,12 +118,13 @@ export function Horizon({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, confirmPower]);
+  }, [open, confirmPower, windowPalette]);
 
   useEffect(() => {
     const onBlur = () => {
       setOpen(null);
       setConfirmPower(null);
+      setWindowPalette(false);
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
@@ -142,7 +146,7 @@ export function Horizon({
     state.windows.find(
       (window) => window.orbitId === state.activeOrbit && !window.minimized
     );
-  const activeWin = open ? targetRef.current ?? liveFocusedWin : liveFocusedWin;
+  const activeWin = open || windowPalette ? targetRef.current ?? liveFocusedWin : liveFocusedWin;
   const activeApp = activeWin ? state.apps.find((app) => app.id === activeWin.appId) : undefined;
   const appName = activeApp?.name ?? "Gravity";
   const appWindows = activeApp ? state.windows.filter((window) => window.appId === activeApp.id) : [];
@@ -180,6 +184,39 @@ export function Horizon({
     } finally {
       setShellBusy(false);
     }
+  };
+
+  const runWindowControl = (kind: "close" | "minimize" | "zoom") => {
+    const target = targetRef.current ?? liveFocusedWin;
+    if (!target) return;
+    const operation = kind === "close"
+      ? actions.closeWindow(target.id)
+      : kind === "minimize"
+        ? actions.minimizeWindow(target.id)
+        : actions.toggleMaximizeWindow(target.id);
+    const label = kind === "close" ? "Close Window" : kind === "minimize" ? "Minimize" : target.maximized ? "Restore" : "Fill";
+    void execute(label, () => operation, false).catch(() => undefined);
+  };
+
+  const clearPaletteTimer = () => {
+    if (paletteTimer.current !== null) {
+      window.clearTimeout(paletteTimer.current);
+      paletteTimer.current = null;
+    }
+  };
+
+  const showWindowPaletteSoon = () => {
+    clearPaletteTimer();
+    if (!targetRef.current) targetRef.current = liveFocusedWin;
+    paletteTimer.current = window.setTimeout(() => {
+      setOpen(null);
+      setWindowPalette(Boolean(targetRef.current));
+    }, 420);
+  };
+
+  const hideWindowPaletteSoon = () => {
+    clearPaletteTimer();
+    paletteTimer.current = window.setTimeout(() => setWindowPalette(false), 180);
   };
 
   const gravityMenu: MenuEntry[] = [
@@ -248,7 +285,7 @@ export function Horizon({
         { label: "Move to Right Half", hint: "Ctrl Alt →", action: activeWin ? manage("right-half") : undefined, disabled: !activeWin },
         { label: "Move to Top Half", hint: "Ctrl Alt ↑", action: activeWin ? manage("top-half") : undefined, disabled: !activeWin },
         { label: "Move to Bottom Half", hint: "Ctrl Alt ↓", action: activeWin ? manage("bottom-half") : undefined, disabled: !activeWin },
-        { label: "Maximize", hint: "Ctrl Alt Enter", action: activeWin ? manage("maximize") : undefined, disabled: !activeWin },
+        { label: activeWin?.maximized ? "Restore from Full Screen" : "Fill", hint: "Ctrl Alt Enter", action: activeWin ? () => actions.toggleMaximizeWindow(activeWin.id) : undefined, disabled: !activeWin },
         { label: "Center", action: activeWin ? manage("center") : undefined, disabled: !activeWin },
         "sep",
         { label: "Previous Display", hint: "Ctrl Alt Shift ←", action: activeWin ? manage("previous-display") : undefined, disabled: !activeWin },
@@ -293,6 +330,7 @@ export function Horizon({
 
   const openMenu = (key: string | null) => {
     if (key && !openRef.current) targetRef.current = liveFocusedWin;
+    setWindowPalette(false);
     setOpen(key);
   };
 
@@ -315,13 +353,14 @@ export function Horizon({
 
   return (
     <div className="horizon">
-      {(open || confirmPower) && (
+      {(open || confirmPower || windowPalette) && (
         <button
           className="horizon__scrim"
           aria-label="Close menu"
           onPointerDown={() => {
             setOpen(null);
             setConfirmPower(null);
+            setWindowPalette(false);
           }}
         />
       )}
@@ -337,6 +376,81 @@ export function Horizon({
             <GravityMark size={16} />
           </button>
           {open === "gravity" && renderMenu(gravityMenu)}
+        </span>
+
+        <span
+          className={`hzWindowControls ${activeWin ? "is-available" : ""}`}
+          aria-label="Active window controls"
+          onPointerEnter={showWindowPaletteSoon}
+          onPointerLeave={hideWindowPaletteSoon}
+        >
+          <button
+            className="hzWindowControl is-close"
+            aria-label="Close active window"
+            disabled={!activeWin}
+            onPointerDown={() => { targetRef.current = liveFocusedWin; }}
+            onClick={() => runWindowControl("close")}
+          ><span aria-hidden="true">×</span></button>
+          <button
+            className="hzWindowControl is-minimize"
+            aria-label="Minimize active window to Orbit"
+            disabled={!activeWin}
+            onPointerDown={() => { targetRef.current = liveFocusedWin; }}
+            onClick={() => runWindowControl("minimize")}
+          ><span aria-hidden="true">−</span></button>
+          <span
+            className="hzWindowZoomAnchor"
+            onMouseEnter={showWindowPaletteSoon}
+            onMouseLeave={hideWindowPaletteSoon}
+          >
+            <button
+              className="hzWindowControl is-zoom"
+              aria-label={activeWin?.maximized ? "Restore active window" : "Fill active window"}
+              disabled={!activeWin}
+              onPointerDown={() => { targetRef.current = liveFocusedWin; }}
+              onClick={() => runWindowControl("zoom")}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                clearPaletteTimer();
+                targetRef.current = liveFocusedWin;
+                setOpen(null);
+                setWindowPalette(Boolean(liveFocusedWin));
+              }}
+            ><span aria-hidden="true">↗</span></button>
+            {windowPalette && activeWin && (
+              <div className="hzWindowPalette glass-heavy" role="menu" aria-label="Move and resize active window">
+                <div className="hzWindowPalette__title">Move & Resize</div>
+                <div className="hzWindowPalette__grid">
+                  {([
+                    ["left-half", "Left half"], ["right-half", "Right half"],
+                    ["top-left", "Top left"], ["top-right", "Top right"],
+                    ["bottom-left", "Bottom left"], ["bottom-right", "Bottom right"],
+                  ] as Array<[WindowAction, string]>).map(([action, label]) => (
+                    <button
+                      key={action}
+                      className={`hzWindowPalette__zone is-${action}`}
+                      role="menuitem"
+                      aria-label={label}
+                      title={label}
+                      onClick={() => {
+                        setWindowPalette(false);
+                        void execute(label, () => actions.windowActionFor(activeWin.id, action), false)
+                          .catch(() => undefined);
+                      }}
+                    ><span /></button>
+                  ))}
+                </div>
+                <button
+                  className="hzWindowPalette__fill"
+                  role="menuitem"
+                  onClick={() => {
+                    setWindowPalette(false);
+                    runWindowControl("zoom");
+                  }}
+                >{activeWin.maximized ? "Restore" : "Fill"}</button>
+              </div>
+            )}
+          </span>
         </span>
 
         {menus.map((menu) => (

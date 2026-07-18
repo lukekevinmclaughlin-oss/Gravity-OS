@@ -92,6 +92,7 @@ export class TauriShell implements ShellProviderI {
   actions: ShellActions = {
     focusWindow: (id) => this.mutate<void>("focus_window", { id }),
     minimizeWindow: (id) => this.mutate<void>("minimize_window", { id }),
+    toggleMaximizeWindow: (id) => this.mutate<void>("toggle_maximize_window", { id }),
     closeWindow: (id) => this.mutate<void>("close_window", { id }),
     windowAction: (action) => this.call<void>("window_action", { action }),
     windowActionFor: (windowId, action) =>
@@ -100,6 +101,8 @@ export class TauriShell implements ShellProviderI {
       const { command, args } = ipc.launchApp(appId);
       return this.call<LaunchResult>(command, args);
     },
+    launchAppWithFiles: (appId, paths) =>
+      this.call<LaunchResult>("launch_app_with_files", { appId, paths }),
     setAppPinned: async (appId, pinned) => {
       await this.call<void>("set_app_pinned", { appId, pinned });
       await this.refresh();

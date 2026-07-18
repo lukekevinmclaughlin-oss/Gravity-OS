@@ -20,9 +20,10 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, PostMessageW,
-    SetForegroundWindow, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_MINIMIZE, SW_RESTORE,
-    SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WM_CLOSE, WS_EX_TOOLWINDOW,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
+    PostMessageW, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_MAXIMIZE,
+    SW_MINIMIZE, SW_RESTORE, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WM_CLOSE,
+    WS_EX_TOOLWINDOW,
 };
 
 use super::{
@@ -154,6 +155,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         app_id: appindex::app_id_for_window(hwnd, &title),
         title,
         minimized: IsIconic(hwnd).as_bool(),
+        maximized: IsZoomed(hwnd).as_bool(),
         focused: visible && hwnd == foreground,
         orbit_id,
     });
@@ -314,6 +316,19 @@ impl ShellPlatform for WindowsPlatform {
         Ok(())
     }
 
+    fn toggle_maximize_window(&self, id: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        if !unsafe { IsWindow(hwnd) }.as_bool() {
+            return Err("That window is no longer available".into());
+        }
+        unsafe {
+            let command = if IsZoomed(hwnd).as_bool() { SW_RESTORE } else { SW_MAXIMIZE };
+            let _ = ShowWindow(hwnd, command);
+            let _ = SetForegroundWindow(hwnd);
+        }
+        Ok(())
+    }
+
     fn close_window(&self, id: &str) -> Result<(), String> {
         let hwnd = id_to_hwnd(id).ok_or_else(|| "Invalid window identifier".to_string())?;
         if !unsafe { IsWindow(hwnd) }.as_bool() {
@@ -425,6 +440,10 @@ impl ShellPlatform for WindowsPlatform {
 
     fn launch_app(&self, app_id: &str) -> Result<(), String> {
         appindex::launch(app_id)
+    }
+
+    fn launch_app_with_files(&self, app_id: &str, paths: &[String]) -> Result<(), String> {
+        appindex::launch_with_files(app_id, paths)
     }
 
     fn set_volume(&self, value: f32) -> Result<(), String> {

@@ -30,6 +30,7 @@ impl MockPlatform {
                 app_id: "edge".into(),
                 title: "Gravity OS".into(),
                 minimized: false,
+                maximized: false,
                 focused: true,
                 orbit_id: "o1".into(),
             },
@@ -38,6 +39,7 @@ impl MockPlatform {
                 app_id: "code".into(),
                 title: "orbit.tsx — Gravity-OS".into(),
                 minimized: false,
+                maximized: false,
                 focused: false,
                 orbit_id: "o1".into(),
             },
@@ -99,6 +101,22 @@ impl ShellPlatform for MockPlatform {
         }
         Ok(())
     }
+    fn toggle_maximize_window(&self, id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        if !state.windows.iter().any(|window| window.id == id) {
+            return Err("That window is no longer available".into());
+        }
+        for window in &mut state.windows {
+            if window.id == id {
+                window.maximized = !window.maximized;
+                window.minimized = false;
+                window.focused = true;
+            } else {
+                window.focused = false;
+            }
+        }
+        Ok(())
+    }
     fn close_window(&self, id: &str) -> Result<(), String> {
         let mut state = self.state.lock();
         let before = state.windows.len();
@@ -124,6 +142,15 @@ impl ShellPlatform for MockPlatform {
             return Err(format!("Unknown window placement: {action}"));
         }
         self.focus_window(window_id)?;
+        if let Some(window) = self
+            .state
+            .lock()
+            .windows
+            .iter_mut()
+            .find(|window| window.id == window_id)
+        {
+            window.maximized = false;
+        }
         Ok(())
     }
     fn configure_windowing(&self, gap: u32, cycling: bool) {
@@ -173,6 +200,7 @@ impl ShellPlatform for MockPlatform {
                     app_id: scene_window.app_id.clone(),
                     title: scene_window.title.clone(),
                     minimized: false,
+                    maximized: false,
                     focused: index == 0,
                     orbit_id: orbit_id.clone(),
                 });
@@ -205,10 +233,17 @@ impl ShellPlatform for MockPlatform {
             app_id: app.id,
             title: app.name,
             minimized: false,
+            maximized: false,
             focused: true,
             orbit_id,
         });
         Ok(())
+    }
+    fn launch_app_with_files(&self, app_id: &str, paths: &[String]) -> Result<(), String> {
+        if paths.is_empty() {
+            return Err("Drop at least one file onto an application".into());
+        }
+        self.launch_app(app_id)
     }
     fn set_volume(&self, value: f32) -> Result<(), String> {
         self.state.lock().status.volume = value.clamp(0.0, 1.0);

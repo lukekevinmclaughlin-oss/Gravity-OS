@@ -46,6 +46,9 @@
   --glass-bg-lift: rgba(255, 255, 255, 0.07);
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-specular: rgba(190, 215, 255, 0.13);
+  --glass-x: 50%;
+  --glass-y: 0%;
   --glass-blur: 36px;
   --shadow-float: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
   --shadow-hover: 0 16px 56px rgba(0, 0, 0, 0.42), 0 0 0 0.5px rgba(0, 0, 0, 0.3);
@@ -87,12 +90,14 @@
   --glass-bg-lift: rgba(29, 29, 33, 0.06);
   --glass-border: rgba(29, 29, 33, 0.1);
   --glass-highlight: rgba(255, 255, 255, 0.7);
+  --glass-specular: rgba(255, 255, 255, 0.62);
   --shadow-float: 0 10px 40px rgba(20, 25, 40, 0.18), 0 0 0 0.5px rgba(20, 25, 40, 0.16);
   --shadow-hover: 0 16px 56px rgba(20, 25, 40, 0.24), 0 0 0 0.5px rgba(20, 25, 40, 0.16);
 }
 
 /* ---- Materials ---- */
 .glass {
+  position: relative;
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   backdrop-filter: blur(var(--glass-blur)) saturate(180%);
@@ -100,12 +105,31 @@
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--glass-highlight);
 }
 .glass-heavy {
+  position: relative;
   background: var(--glass-bg-heavy);
   -webkit-backdrop-filter: blur(50px) saturate(180%);
   backdrop-filter: blur(50px) saturate(180%);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--glass-highlight);
 }
+.glass::before,
+.glass-heavy::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(85% 180% at var(--glass-x) var(--glass-y), var(--glass-specular), transparent 48%),
+    linear-gradient(112deg, rgba(255,255,255,.05), transparent 24% 74%, rgba(130,165,255,.035));
+  opacity: .72;
+  mix-blend-mode: screen;
+  transition: opacity var(--t-light) ease;
+}
+.glass:hover::before,
+.glass-heavy:hover::before { opacity: 1; }
+:root[data-theme="daybreak"] .glass::before,
+:root[data-theme="daybreak"] .glass-heavy::before { mix-blend-mode: soft-light; }
 
 /* Lensing edge — Gravity's signature, kept from v1 (subtler, neutralized) */
 .lens::after {

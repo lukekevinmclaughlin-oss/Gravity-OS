@@ -219,6 +219,13 @@ pub fn minimize_window(app: tauri::AppHandle, state: State<AppState>, id: String
 }
 
 #[tauri::command]
+pub fn toggle_maximize_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    state.platform.toggle_maximize_window(&id)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn close_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
     state.platform.close_window(&id)?;
     state_changed(&app);
@@ -247,6 +254,21 @@ pub fn window_action_for(
 #[tauri::command]
 pub fn launch_app(app: tauri::AppHandle, state: State<AppState>, app_id: String) -> Result<LaunchResult, String> {
     state.platform.launch_app(&app_id)?;
+    state_changed(&app);
+    Ok(LaunchResult {
+        app_id,
+        accepted: true,
+    })
+}
+
+#[tauri::command]
+pub fn launch_app_with_files(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    app_id: String,
+    paths: Vec<String>,
+) -> Result<LaunchResult, String> {
+    state.platform.launch_app_with_files(&app_id, &paths)?;
     state_changed(&app);
     Ok(LaunchResult {
         app_id,

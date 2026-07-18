@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { CloseIcon } from "../components/Icons";
@@ -17,7 +17,77 @@ export function Constellation({ open, onClose }: ConstellationProps) {
   const [draggedWindow, setDraggedWindow] = useState<string | null>(null);
   const [dropOrbit, setDropOrbit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pointerDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressOpen = useRef<string | null>(null);
   if (!open) return null;
+
+  const orbitAt = (x: number, y: number) =>
+    document
+      .elementFromPoint(x, y)
+      ?.closest<HTMLElement>("[data-constellation-orbit]")
+      ?.dataset.constellationOrbit ?? null;
+
+  const beginWindowDrag = (event: React.PointerEvent<HTMLDivElement>, windowId: string) => {
+    if (event.pointerType === "mouse" || event.button !== 0 || (event.target as Element).closest(".constel__cardControls")) return;
+    pointerDrag.current = { id: windowId, startX: event.clientX, startY: event.clientY, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = pointerDrag.current;
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 7) {
+      drag.moved = true;
+      setDraggedWindow(drag.id);
+    }
+    if (drag.moved) setDropOrbit(orbitAt(event.clientX, event.clientY));
+  };
+
+  const finishWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = pointerDrag.current;
+    if (!drag) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const orbitId = drag.moved ? orbitAt(event.clientX, event.clientY) ?? dropOrbit : null;
+    if (drag.moved) suppressOpen.current = drag.id;
+    pointerDrag.current = null;
+    setDraggedWindow(null);
+    setDropOrbit(null);
+    if (orbitId) {
+      setError(null);
+      void actions.moveWindowToOrbit(drag.id, orbitId).catch((reason) => setError(String(reason)));
+    }
+  };
+
+  const beginWindowMouseDrag = (event: React.MouseEvent<HTMLDivElement>, windowId: string) => {
+    if (event.button !== 0 || (event.target as Element).closest(".constel__cardControls")) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let moved = false;
+    const move = (next: MouseEvent) => {
+      if (!moved && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) {
+        moved = true;
+        setDraggedWindow(windowId);
+      }
+      if (moved) setDropOrbit(orbitAt(next.clientX, next.clientY));
+    };
+    const finish = (next: MouseEvent) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", finish);
+      const orbitId = moved ? orbitAt(next.clientX, next.clientY) : null;
+      if (!moved) return;
+      suppressOpen.current = windowId;
+      setDraggedWindow(null);
+      setDropOrbit(null);
+      if (orbitId) {
+        setError(null);
+        void actions.moveWindowToOrbit(windowId, orbitId).catch((reason) => setError(String(reason)));
+      }
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", finish, { once: true });
+  };
 
   const wins = state.windows.filter((w) => w.orbitId === state.activeOrbit);
   const groups = new Map<string, typeof wins>();
@@ -34,25 +104,16 @@ export function Constellation({ open, onClose }: ConstellationProps) {
           <button
             key={o.id}
             className={`constel__orbitPill glass ${o.id === state.activeOrbit ? "is-active" : ""} ${dropOrbit === o.id ? "is-drop" : ""}`}
+            data-constellation-orbit={o.id}
             onClick={() => {
               setError(null);
-              void actions.switchOrbit(o.id).catch((reason) => setError(String(reason)));
-            }}
-            onDragOver={(event) => {
-              if (!draggedWindow) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setDropOrbit(o.id);
-            }}
-            onDragLeave={() => setDropOrbit((current) => current === o.id ? null : current)}
-            onDrop={(event) => {
-              event.preventDefault();
-              const windowId = draggedWindow ?? event.dataTransfer.getData("application/x-gravity-window");
-              setDropOrbit(null);
-              setDraggedWindow(null);
-              if (windowId) {
-                setError(null);
+              if (draggedWindow) {
+                const windowId = draggedWindow;
+                setDraggedWindow(null);
+                setDropOrbit(null);
                 void actions.moveWindowToOrbit(windowId, o.id).catch((reason) => setError(String(reason)));
+              } else {
+                void actions.switchOrbit(o.id).catch((reason) => setError(String(reason)));
               }
             }}
           >
@@ -62,17 +123,21 @@ export function Constellation({ open, onClose }: ConstellationProps) {
             </span>
           </button>
         ))}
+        {draggedWindow && (
+          <span className="constel__moveHint glass">Choose an Orbit or drag onto one</span>
+        )}
       </div>
 
       <div className="constel__field" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
         {[...groups.entries()].map(([appId, groupWins]) => {
           const app = state.apps.find((a) => a.id === appId);
-          if (!app) return null;
+          const appName = app?.name ?? groupWins[0]?.title ?? "Application";
+          const appHue = app?.hue ?? 222;
           return (
             <div className="constel__group" key={appId}>
               <div className="constel__groupLabel">
-                <AppTile name={app.name} hue={app.hue} size={18} appId={app.id} />
-                {app.name}
+                <AppTile name={appName} hue={appHue} size={18} appId={app?.id} />
+                {appName}
               </div>
               <div className="constel__cards">
                 {groupWins.map((w, i) => {
@@ -81,23 +146,41 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                   return (
                     <div
                       key={w.id}
-                      className={`constel__card glass lens ${w.minimized ? "is-min" : ""}`}
+                      className={`constel__card glass lens ${w.minimized ? "is-min" : ""} ${w.maximized ? "is-max" : ""} ${draggedWindow === w.id ? "is-dragging" : ""}`}
                       style={{ transform: `rotate(${fan}deg) translateY(${Math.abs(i - mid) * 5}px)` }}
-                      draggable
-                      onDragStart={(event) => {
-                        setDraggedWindow(w.id);
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("application/x-gravity-window", w.id);
-                      }}
-                      onDragEnd={() => {
+                      onMouseDown={(event) => beginWindowMouseDrag(event, w.id)}
+                      onPointerDown={(event) => beginWindowDrag(event, w.id)}
+                      onPointerMove={moveWindowDrag}
+                      onPointerUp={finishWindowDrag}
+                      onPointerCancel={() => {
+                        pointerDrag.current = null;
                         setDraggedWindow(null);
                         setDropOrbit(null);
                       }}
                     >
                       <button
+                        className="constel__dragHandle"
+                        aria-label={`Drag ${w.title} to another Orbit`}
+                        title="Drag to another Orbit"
+                        aria-pressed={draggedWindow === w.id}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (suppressOpen.current === w.id) {
+                            suppressOpen.current = null;
+                            return;
+                          }
+                          setDraggedWindow((current) => current === w.id ? null : w.id);
+                          setDropOrbit(null);
+                        }}
+                      ><span /></button>
+                      <button
                         className="constel__cardOpen"
                         aria-label={`Open ${w.title}`}
                         onClick={() => {
+                          if (suppressOpen.current === w.id) {
+                            suppressOpen.current = null;
+                            return;
+                          }
                           setError(null);
                           void actions.focusWindow(w.id)
                             .then(onClose)
@@ -111,23 +194,40 @@ export function Constellation({ open, onClose }: ConstellationProps) {
                           className="constel__cardBody"
                           style={{
                             background: `linear-gradient(155deg,
-                              hsl(${app.hue} 40% 22% / 0.85),
-                              hsl(${(app.hue + 42) % 360} 45% 12% / 0.9))`,
+                              hsl(${appHue} 40% 22% / 0.85),
+                              hsl(${(appHue + 42) % 360} 45% 12% / 0.9))`,
                           }}
                         >
-                          <AppTile name={app.name} hue={app.hue} size={34} appId={app.id} />
+                          <AppTile name={appName} hue={appHue} size={34} appId={app?.id} />
                         </span>
                       </button>
-                      <button
-                        className="constel__cardClose"
-                        aria-label={`Close ${w.title}`}
-                        onClick={() => {
-                          setError(null);
-                          void actions.closeWindow(w.id).catch((reason) => setError(String(reason)));
-                        }}
-                      >
-                        <CloseIcon size={11} />
-                      </button>
+                      <span className="constel__cardControls">
+                        <button
+                          className="constel__cardControl is-close"
+                          aria-label={`Close ${w.title}`}
+                          onClick={() => {
+                            setError(null);
+                            void actions.closeWindow(w.id).catch((reason) => setError(String(reason)));
+                          }}
+                        ><CloseIcon size={8} /></button>
+                        <button
+                          className="constel__cardControl is-minimize"
+                          aria-label={`${w.minimized ? "Restore" : "Minimize"} ${w.title}`}
+                          onClick={() => {
+                            setError(null);
+                            const operation = w.minimized ? actions.focusWindow(w.id) : actions.minimizeWindow(w.id);
+                            void operation.catch((reason) => setError(String(reason)));
+                          }}
+                        ><span aria-hidden="true">−</span></button>
+                        <button
+                          className="constel__cardControl is-zoom"
+                          aria-label={`${w.maximized ? "Restore" : "Fill"} ${w.title}`}
+                          onClick={() => {
+                            setError(null);
+                            void actions.toggleMaximizeWindow(w.id).catch((reason) => setError(String(reason)));
+                          }}
+                        ><span aria-hidden="true">↗</span></button>
+                      </span>
                     </div>
                   );
                 })}

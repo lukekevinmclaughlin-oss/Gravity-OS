@@ -15,6 +15,7 @@ export interface WindowInfo {
   appId: string;
   title: string;
   minimized: boolean;
+  maximized: boolean;
   focused: boolean;
   orbitId: string;
 }
@@ -144,11 +145,14 @@ export type WindowAction =
 export interface ShellActions {
   focusWindow(id: string): Promise<void>;
   minimizeWindow(id: string): Promise<void>;
+  toggleMaximizeWindow(id: string): Promise<void>;
   closeWindow(id: string): Promise<void>;
   windowAction(action: WindowAction): Promise<void>;
   windowActionFor(windowId: string, action: WindowAction): Promise<void>;
   /** Resolve only after Windows has accepted the launch request. */
   launchApp(appId: string): Promise<LaunchResult>;
+  /** Open one or more dropped files with a Dock application. */
+  launchAppWithFiles(appId: string, paths: string[]): Promise<LaunchResult>;
   setAppPinned(appId: string, pinned: boolean): Promise<void>;
   reorderPinnedApps(appIds: string[]): Promise<void>;
   setAppearance(mode: AppearanceMode): Promise<void>;

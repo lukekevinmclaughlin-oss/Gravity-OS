@@ -77,6 +77,7 @@ pub struct WindowInfo {
     pub app_id: String,
     pub title: String,
     pub minimized: bool,
+    pub maximized: bool,
     pub focused: bool,
     pub orbit_id: String,
 }

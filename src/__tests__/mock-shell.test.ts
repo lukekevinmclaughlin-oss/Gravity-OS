@@ -33,6 +33,38 @@ describe("MockShell interaction contract", () => {
     expect(focused[0].orbitId).toBe("o2");
   });
 
+  it("round-trips a real window through minimize, Dock restore, and zoom", async () => {
+    const shell = new MockShell();
+    const target = shell.snapshot().windows[0];
+
+    await shell.actions.minimizeWindow(target.id);
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)).toMatchObject({
+      minimized: true,
+      focused: false,
+    });
+
+    await shell.actions.focusWindow(target.id);
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)).toMatchObject({
+      minimized: false,
+      focused: true,
+    });
+
+    await shell.actions.toggleMaximizeWindow(target.id);
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)?.maximized).toBe(true);
+    await shell.actions.toggleMaximizeWindow(target.id);
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)?.maximized).toBe(false);
+  });
+
+  it("opens dropped files with the selected Orbit application", async () => {
+    const shell = new MockShell();
+    const before = shell.snapshot().windows.length;
+    await expect(shell.actions.launchAppWithFiles("code", ["C:\\Work\\gravity.ts"])).resolves.toMatchObject({ accepted: true });
+    const windows = shell.snapshot().windows;
+    expect(windows).toHaveLength(before + 1);
+    expect(windows[windows.length - 1]).toMatchObject({ appId: "code", focused: true });
+    expect(windows[windows.length - 1].title).toContain("gravity.ts");
+  });
+
   it("round-trips appearance, wallpaper, volume, brightness, and shell mode", async () => {
     const shell = new MockShell();
     await shell.actions.setAppearance("light");

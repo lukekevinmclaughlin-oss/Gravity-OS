@@ -11,6 +11,7 @@ pub trait ShellPlatform: Send + Sync {
     // Window control
     fn focus_window(&self, id: &str) -> Result<(), String>;
     fn minimize_window(&self, id: &str) -> Result<(), String>;
+    fn toggle_maximize_window(&self, id: &str) -> Result<(), String>;
     fn close_window(&self, id: &str) -> Result<(), String>;
     fn window_action(&self, action: &str) -> Result<(), String>;
     fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String>;
@@ -21,6 +22,7 @@ pub trait ShellPlatform: Send + Sync {
 
     // Apps
     fn launch_app(&self, app_id: &str) -> Result<(), String>;
+    fn launch_app_with_files(&self, app_id: &str, paths: &[String]) -> Result<(), String>;
 
     // System
     fn set_volume(&self, value: f32) -> Result<(), String>;

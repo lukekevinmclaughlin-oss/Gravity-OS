@@ -41,6 +41,7 @@ const win = (appId: string, title: string, orbitId: string, focused = false): Wi
   appId,
   title,
   minimized: false,
+  maximized: false,
   focused,
   orbitId,
 });
@@ -162,6 +163,11 @@ export class MockShell implements ShellProviderI {
         throw new Error("That preview window is no longer available.");
       }
       await this.actions.focusWindow(windowId);
+      this.emit({
+        windows: this.state.windows.map((window) =>
+          window.id === windowId ? { ...window, maximized: false } : window
+        ),
+      });
       this.notify("Window Studio", "Layout applied", action);
     },
     launchApp: async (appId) => {
@@ -179,6 +185,19 @@ export class MockShell implements ShellProviderI {
       }, 650);
       return { appId, accepted: true };
     },
+    launchAppWithFiles: async (appId, paths) => {
+      const targetApp = this.state.apps.find((item) => item.id === appId);
+      if (!targetApp) throw new Error("That application is no longer installed.");
+      if (!paths.length) throw new Error("Drop at least one file onto an application.");
+      const fileName = paths[0].split(/[\\/]/).pop() ?? paths[0];
+      this.emit({
+        windows: [
+          ...this.state.windows.map((window) => ({ ...window, focused: false })),
+          win(appId, `${targetApp.name} — ${fileName}`, this.state.activeOrbit, true),
+        ],
+      });
+      return { appId, accepted: true };
+    },
     setAppPinned: async (appId, pinned) => {
       if (!this.state.apps.some((item) => item.id === appId)) {
         throw new Error("That application is no longer installed.");
@@ -186,6 +205,18 @@ export class MockShell implements ShellProviderI {
       this.emit({
         apps: this.state.apps.map((item) =>
           item.id === appId ? { ...item, pinned } : item
+        ),
+      });
+    },
+    toggleMaximizeWindow: async (id) => {
+      if (!this.state.windows.some((window) => window.id === id)) {
+        throw new Error("That preview window is no longer available.");
+      }
+      this.emit({
+        windows: this.state.windows.map((window) =>
+          window.id === id
+            ? { ...window, maximized: !window.maximized, minimized: false, focused: true }
+            : { ...window, focused: false }
         ),
       });
     },

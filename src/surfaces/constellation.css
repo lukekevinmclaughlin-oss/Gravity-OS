@@ -16,6 +16,7 @@
   }
 }
 .constel__orbits {
+  position: relative;
   display: flex;
   justify-content: center;
   gap: 10px;
@@ -34,6 +35,21 @@
 .constel__orbitPill.is-active {
   color: var(--ink);
   border-color: var(--accent-soft);
+}
+.constel__moveHint {
+  position: absolute;
+  top: 108px;
+  left: 50%;
+  padding: 6px 12px;
+  transform: translateX(-50%);
+  border-radius: 99px;
+  color: var(--ink-dim);
+  font: 600 10.5px var(--font-ui);
+  white-space: nowrap;
+  animation: constel-move-hint 160ms var(--ease-mass) both;
+}
+@keyframes constel-move-hint {
+  from { opacity: 0; transform: translate(-50%, -4px) scale(.96); }
 }
 .constel__orbitPill.is-drop {
   color: var(--ink);
@@ -109,11 +125,49 @@
   box-shadow: var(--shadow-hover), 0 0 0 2px var(--accent);
   z-index: 2;
 }
-.constel__card:active {
+.constel__cardOpen { cursor: grab; }
+.constel__dragHandle {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 17px;
+  transform: translateX(-50%);
+  cursor: grab;
+}
+.constel__dragHandle > span {
+  width: 24px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--ink-faint);
+  transition: width var(--t-light) var(--ease-mass), background var(--t-light) ease;
+}
+.constel__dragHandle:hover > span,
+.constel__dragHandle:focus-visible > span { width: 32px; background: var(--ink-dim); }
+.constel__dragHandle[aria-pressed="true"] > span {
+  width: 38px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-soft);
+}
+.constel__dragHandle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.constel__card:active,
+.constel__card.is-dragging .constel__cardOpen {
   cursor: grabbing;
+}
+.constel__card.is-dragging {
+  z-index: 8;
+  opacity: .68;
+  transform: scale(.94) !important;
+  box-shadow: 0 0 0 2px var(--accent), 0 16px 45px rgba(0,0,0,.42);
 }
 .constel__card.is-min {
   opacity: 0.55;
+}
+.constel__card.is-max {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), var(--shadow-1);
 }
 .constel__cardOpen {
   display: block;
@@ -139,27 +193,40 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.constel__cardClose {
+.constel__cardControls {
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: 9px;
+  left: 9px;
   z-index: 4;
+  display: inline-flex;
+  gap: 5px;
+}
+.constel__cardControl {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
-  flex: none;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  color: var(--ink-faint);
+  border: .5px solid rgba(0,0,0,.14);
+  color: rgba(25,25,27,.76);
+  opacity: .82;
+  transition: opacity var(--t-light) var(--ease-mass), transform var(--t-light) var(--ease-mass);
+}
+.constel__cardControl.is-close { background: #ff5f57; }
+.constel__cardControl.is-minimize { background: #febc2e; }
+.constel__cardControl.is-zoom { background: #28c840; }
+.constel__cardControl > span,
+.constel__cardControl > svg {
   opacity: 0;
-  transition: opacity var(--t-light) var(--ease-mass);
+  font: 700 8px/1 Arial, sans-serif;
 }
-.constel__card:hover .constel__cardClose {
-  opacity: 1;
-}
-.constel__cardClose:hover {
-  color: var(--danger);
-  background: var(--glass-bg-lift);
+.constel__card:hover .constel__cardControl { opacity: 1; }
+.constel__cardControls:hover .constel__cardControl > span,
+.constel__cardControls:hover .constel__cardControl > svg { opacity: .78; }
+.constel__cardControl:hover { transform: scale(1.12); }
+.constel__cardControl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.constel__cardHead {
+  padding-left: 55px;
 }
 .constel__cardBody {
   display: grid;

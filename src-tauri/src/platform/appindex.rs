@@ -190,6 +190,85 @@ pub fn launch(app_id: &str) -> Result<(), String> {
     shell_open(cmd).map_err(|error| format!("Could not open {}: {error}", app.name))
 }
 
+/// File activation from Orbit. ShellExecute forwards the validated files to
+/// classic executables and Start Menu shortcuts just as Explorer's Open With
+/// command does. Protocol-only apps do not expose a generic file contract, so
+/// they fail visibly instead of silently launching the wrong application.
+pub fn launch_with_files(app_id: &str, paths: &[String]) -> Result<(), String> {
+    if paths.is_empty() {
+        return Err("Drop at least one file onto an application.".into());
+    }
+    if paths.len() > 16 {
+        return Err("Open at most 16 files at once.".into());
+    }
+    let app = index()
+        .iter()
+        .find(|item| item.id == app_id)
+        .ok_or_else(|| format!("Application '{app_id}' is no longer installed."))?;
+    let target = app
+        .exe
+        .as_deref()
+        .ok_or_else(|| format!("{} has no launch target.", app.name))?;
+    if target.contains(':') && !Path::new(target).is_absolute() {
+        return Err(format!(
+            "{} does not advertise support for files dropped from the desktop.",
+            app.name
+        ));
+    }
+
+    let mut clean = Vec::with_capacity(paths.len());
+    for path in paths {
+        let candidate = Path::new(path);
+        if !candidate.exists() {
+            return Err(format!("The dropped item no longer exists: {path}"));
+        }
+        clean.push(quote_windows_argument(path));
+    }
+    let parameters = clean.join(" ");
+    let file = wide(target);
+    let params = wide(&parameters);
+    let op = wide("open");
+    unsafe {
+        let result = ShellExecuteW(
+            HWND(std::ptr::null_mut()),
+            PCWSTR(op.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR(params.as_ptr()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+        let code = result.0 as isize;
+        if code > 32 {
+            Ok(())
+        } else {
+            Err(format!("Could not open the dropped files with {}: {}", app.name, shell_execute_error(code)))
+        }
+    }
+}
+
+fn quote_windows_argument(value: &str) -> String {
+    let mut output = String::from("\"");
+    let mut backslashes = 0usize;
+    for character in value.chars() {
+        match character {
+            '\\' => backslashes += 1,
+            '"' => {
+                output.push_str(&"\\".repeat(backslashes * 2 + 1));
+                output.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                output.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                output.push(character);
+            }
+        }
+    }
+    output.push_str(&"\\".repeat(backslashes * 2));
+    output.push('"');
+    output
+}
+
 /// ShellExecute "open" on a path, exe name or URI.
 pub fn shell_open(target: &str) -> Result<(), String> {
     let file = wide(target);
@@ -708,6 +787,12 @@ const _C_VOID: usize = std::mem::size_of::<*mut c_void>();
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quotes_file_activation_arguments_for_windows() {
+        assert_eq!(quote_windows_argument(r"C:\Gravity Files\note.txt"), r#""C:\Gravity Files\note.txt""#);
+        assert_eq!(quote_windows_argument(r#"C:\Work\say "hi".txt"#), r#""C:\Work\say \"hi\".txt""#);
+    }
 
     #[test]
     #[ignore = "requires Google Chrome at the default Start Menu path"]

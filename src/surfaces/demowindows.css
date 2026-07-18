@@ -4,10 +4,14 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 280px;
+  min-height: 190px;
+  resize: both;
   z-index: 10;
   opacity: 0.94;
   animation: demoWinIn var(--t-heavy) var(--ease-mass);
 }
+.demoWin.is-maximized { resize: none; }
 @keyframes demoWinIn {
   from {
     opacity: 0;
@@ -25,7 +29,10 @@
   gap: 12px;
   padding: 9px 12px;
   flex: none;
+  cursor: grab;
+  touch-action: none;
 }
+.demoWin__bar:active { cursor: grabbing; }
 .demoWin__orbs {
   display: inline-flex;
   gap: 7px;

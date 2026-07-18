@@ -86,9 +86,27 @@ impl WindowManager {
     }
 
     pub fn execute_for(&self, hwnd: HWND, action: &str) -> Result<(), String> {
-        let placement = Placement::parse(action)
-            .ok_or_else(|| format!("Unknown snap placement: {action}"))?;
-        self.place(hwnd, placement)
+        if let Some(placement) = Placement::parse(action) {
+            return self.place(hwnd, placement);
+        }
+        match action {
+            "undo" => self.undo(hwnd),
+            "restore" => self.restore(hwnd),
+            "next-display" => self.move_display(hwnd, 1),
+            "previous-display" => self.move_display(hwnd, -1),
+            "grow" => self.scale(hwnd, 1.1),
+            "shrink" => self.scale(hwnd, 0.9),
+            "arrange-display" => self.arrange_display(hwnd),
+            "cascade" => self.cascade(hwnd),
+            "tile-app" => self.tile_application(hwnd),
+            "gather-all" => self.gather_all(hwnd),
+            "pair-previous" => self.pair_previous(hwnd),
+            "focus-left" => self.focus(hwnd, FocusDirection::Left),
+            "focus-right" => self.focus(hwnd, FocusDirection::Right),
+            "focus-up" => self.focus(hwnd, FocusDirection::Up),
+            "focus-down" => self.focus(hwnd, FocusDirection::Down),
+            _ => Err(format!("Unknown window action: {action}")),
+        }
     }
 
     pub fn capture_frame(&self, hwnd: HWND) -> Result<SceneFrame, String> {

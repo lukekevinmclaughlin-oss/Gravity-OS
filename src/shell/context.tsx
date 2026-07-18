@@ -35,6 +35,28 @@ export function ShellRoot({ children }: { children: ReactNode }) {
     }
   }, [state.appearance]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    let frame = 0;
+    let pointerX = window.innerWidth / 2;
+    let pointerY = 0;
+    const paint = () => {
+      frame = 0;
+      root.style.setProperty("--glass-x", `${(pointerX / Math.max(1, window.innerWidth)) * 100}%`);
+      root.style.setProperty("--glass-y", `${(pointerY / Math.max(1, window.innerHeight)) * 100}%`);
+    };
+    const track = (event: PointerEvent) => {
+      pointerX = event.clientX;
+      pointerY = event.clientY;
+      if (!frame) frame = requestAnimationFrame(paint);
+    };
+    window.addEventListener("pointermove", track, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", track);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
   const value = useMemo(() => ({ state, actions: provider.actions }), [state, provider]);
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }
