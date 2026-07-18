@@ -26,16 +26,16 @@
   --ink-faint: rgba(242, 242, 245, 0.38);
   --ink-ghost: rgba(242, 242, 245, 0.18);
 
-  /* Accent — "Graviton Blue" default; the aurora names are kept as
-     aliases so v1 surfaces re-accent without edits. */
+  /* Accent — "Graviton Blue" default; the user accent system (NS-13.1)
+     overrides --accent at the root, and every derived value follows. */
   --accent: #3a7bfd;
-  --accent-soft: rgba(58, 123, 253, 0.28);
+  --accent-soft: color-mix(in srgb, var(--accent) 28%, transparent);
   --on-accent: #ffffff;
   --aurora: var(--accent);
-  --aurora-deep: #2f68e0;
-  --aurora-cool: #4a8bff;
-  --aurora-far: #7a8cff;
-  --aurora-grad: linear-gradient(118deg, #3a7bfd, #4a8bff);
+  --aurora-deep: color-mix(in srgb, var(--accent) 82%, #000000);
+  --aurora-cool: color-mix(in srgb, var(--accent) 78%, #ffffff);
+  --aurora-far: color-mix(in srgb, var(--accent) 55%, #b9c2ff);
+  --aurora-grad: linear-gradient(118deg, var(--accent), color-mix(in srgb, var(--accent) 78%, #ffffff));
   --danger: #f4573f;
   --warn: #e0a52e;
   --ok: #31c48d;
@@ -70,7 +70,7 @@
   --t-med: 250ms;
   --t-heavy: 350ms;
 
-  --ring: 0 0 0 3.5px rgba(58, 123, 253, 0.4);
+  --ring: 0 0 0 3.5px color-mix(in srgb, var(--accent) 40%, transparent);
 
   /* Shell geometry */
   --bar-h: 30px;
@@ -94,6 +94,23 @@
   --glass-specular: rgba(255, 255, 255, 0.62);
   --shadow-float: 0 10px 40px rgba(20, 25, 40, 0.18), 0 0 0 0.5px rgba(20, 25, 40, 0.16);
   --shadow-hover: 0 16px 56px rgba(20, 25, 40, 0.24), 0 0 0 0.5px rgba(20, 25, 40, 0.16);
+}
+
+/* Reduce Transparency (NS-13.4): every glass fill becomes opaque and all
+   backdrop blur is dropped; layout, borders and shadows stay identical. */
+:root[data-reduce-transparency] {
+  --glass-bg: #1d1d21;
+  --glass-bg-heavy: #25252a;
+  --glass-specular: transparent;
+}
+:root[data-reduce-transparency][data-theme="daybreak"] {
+  --glass-bg: #f4f4f7;
+  --glass-bg-heavy: #f8f8fa;
+}
+:root[data-reduce-transparency] :where(.glass),
+:root[data-reduce-transparency] :where(.glass-heavy) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* ---- Materials ---- */

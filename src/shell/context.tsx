@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { MockShell } from "./mock";
 import { TauriShell, isTauri } from "./tauri";
 import type { ShellActions, ShellState } from "./types";
+import { ACCENTS, resolveAutoAccent, usePersonalization } from "../lib/customization";
 
 interface ShellContextValue {
   state: ShellState;
@@ -36,6 +37,38 @@ export function ShellRoot({ children }: { children: ReactNode }) {
       // Rust remains authoritative if storage is disabled.
     }
   }, [state.appearance]);
+
+  // User accent + Reduce Transparency (NS-13.1 / NS-13.4). Every derived
+  // token follows --accent, so one root override recolors the whole surface.
+  const [personalization] = usePersonalization();
+  useEffect(() => {
+    const root = document.documentElement;
+    if (personalization.desktop.reduceTransparency) root.dataset.reduceTransparency = "true";
+    else delete root.dataset.reduceTransparency;
+    const accent = personalization.desktop.accent;
+    if (accent !== "auto") {
+      root.style.setProperty("--accent", ACCENTS[accent].hex);
+      return;
+    }
+    let cancelled = false;
+    void resolveAutoAccent(
+      state.appearance.wallpaperId,
+      state.appearance.resolved,
+      personalization.wallpaper,
+    ).then((hex) => {
+      if (cancelled) return;
+      if (hex) root.style.setProperty("--accent", hex);
+      else root.style.removeProperty("--accent");
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    personalization.desktop.accent,
+    personalization.desktop.reduceTransparency,
+    personalization.wallpaper,
+    state.appearance,
+  ]);
 
   useEffect(() => {
     const root = document.documentElement;

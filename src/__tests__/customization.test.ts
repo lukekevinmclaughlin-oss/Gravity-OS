@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { distributeWindowsToWells, snapWindowsToGrid } from "../lib/customization";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ACCENTS, DEFAULT_PERSONALIZATION, distributeWindowsToWells, readPersonalization, snapWindowsToGrid } from "../lib/customization";
 import type { ShellActions, WindowInfo } from "../shell/types";
 import type { WellDefinition } from "../lib/wells";
 
@@ -41,5 +41,39 @@ describe("desktop customization workflows", () => {
     expect(parkWindow).toHaveBeenNthCalledWith(1, "one", "well-1");
     expect(parkWindow).toHaveBeenNthCalledWith(2, "two", "well-2");
     expect(parkWindow).toHaveBeenCalledTimes(5);
+  });
+
+  describe("personalization validation", () => {
+    const stub = new Map<string, string>();
+    afterEach(() => {
+      stub.clear();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).localStorage;
+    });
+    const install = (stored: unknown) => {
+      stub.set("gravity.personalization.v1", JSON.stringify(stored));
+      (globalThis as { localStorage?: unknown }).localStorage = {
+        getItem: (key: string) => stub.get(key) ?? null,
+        setItem: (key: string, value: string) => void stub.set(key, value),
+        removeItem: (key: string) => void stub.delete(key),
+      };
+    };
+
+    it("keeps a valid stored accent and honors reduce-transparency", () => {
+      install({ desktop: { accent: "coral", reduceTransparency: true, doubleClickShowsDesktop: false } });
+      const preferences = readPersonalization();
+      expect(preferences.desktop.accent).toBe("coral");
+      expect(ACCENTS.coral.hex).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(preferences.desktop.reduceTransparency).toBe(true);
+      expect(preferences.desktop.doubleClickShowsDesktop).toBe(false);
+    });
+
+    it("falls back to the default accent when storage holds garbage", () => {
+      install({ desktop: { accent: "hotdog", reduceTransparency: "yes" } });
+      const preferences = readPersonalization();
+      expect(preferences.desktop.accent).toBe(DEFAULT_PERSONALIZATION.desktop.accent);
+      expect(preferences.desktop.reduceTransparency).toBe(false);
+      expect(preferences.desktop.doubleClickShowsDesktop).toBe(true);
+    });
   });
 });

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { GridIcon, WindowsIcon } from "../components/Icons";
 import {
+  ACCENTS,
   DEFAULT_PERSONALIZATION,
   GRID_LAYOUTS,
   distributeWindowsToWells,
@@ -10,7 +11,7 @@ import {
   snapWindowsToGrid,
   usePersonalization,
 } from "../lib/customization";
-import type { DockMaterial, DockMotion, GridLayoutId, PersonalizationPreferences } from "../lib/customization";
+import type { AccentId, DockMaterial, DockMotion, GridLayoutId, PersonalizationPreferences } from "../lib/customization";
 import { WALLPAPERS, wallpaperSource } from "../lib/wallpapers";
 import { colorForWell, sendWellCommand, useDesktopWells, WELL_CAPACITY, WELL_COLORS, WELL_KINDS } from "../lib/wells";
 import { useShell } from "../shell/context";
@@ -157,6 +158,35 @@ export function CustomizationCenter({ open, onClose }: CustomizationCenterProps)
                   <div className="customization__title"><span><strong>Appearance</strong><small>Choose an automatic, light, or dark desktop</small></span></div>
                   <div className="customization__segments">
                     {(["system", "light", "dark"] as const).map((mode) => <button key={mode} className={state.appearance.mode === mode ? "is-selected" : ""} onClick={() => void chooseAppearance(mode)}>{mode}</button>)}
+                  </div>
+                </section>
+
+                <section className="customization__section">
+                  <div className="customization__title"><span><strong>Accent</strong><small>Recolors selection, toggles, and focus across every surface</small></span></div>
+                  <div className="customization__accents" role="radiogroup" aria-label="Accent color">
+                    {(Object.keys(ACCENTS) as Array<Exclude<AccentId, "auto">>).map((id) => (
+                      <button
+                        key={id}
+                        role="radio"
+                        aria-checked={preferences.desktop.accent === id}
+                        className={preferences.desktop.accent === id ? "is-selected" : ""}
+                        title={ACCENTS[id].label}
+                        aria-label={ACCENTS[id].label}
+                        style={{ "--swatch": ACCENTS[id].hex } as CSSProperties}
+                        onClick={() => patchDesktop({ accent: id })}
+                      />
+                    ))}
+                    <button
+                      role="radio"
+                      aria-checked={preferences.desktop.accent === "auto"}
+                      className={`is-auto ${preferences.desktop.accent === "auto" ? "is-selected" : ""}`}
+                      title="Auto — sampled from the current wallpaper"
+                      aria-label="Automatic accent from wallpaper"
+                      onClick={() => patchDesktop({ accent: "auto" })}
+                    >A</button>
+                  </div>
+                  <div className="customization__toggles">
+                    <Toggle label="Reduce transparency" checked={preferences.desktop.reduceTransparency} onChange={(reduceTransparency) => patchDesktop({ reduceTransparency })} />
                   </div>
                 </section>
 

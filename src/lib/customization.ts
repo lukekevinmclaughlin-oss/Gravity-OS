@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ShellActions, WindowInfo } from "../shell/types";
 import type { WellDefinition } from "./wells";
 import { WELL_CAPACITY } from "./wells";
+import { WALLPAPERS, wallpaperSource } from "./wallpapers";
 
 export type DockMaterial = "floating" | "glass" | "solid";
 export type DockMotion = "gentle" | "fluid" | "expressive";
@@ -181,6 +182,109 @@ export function usePersonalization(): [PersonalizationPreferences, (next: Person
     writePersonalization(resolved);
   };
   return [value, update];
+}
+
+const AUTO_ACCENT_CACHE = "gravity.auto-accent.v1";
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const secondary = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const base = lightness - chroma / 2;
+  const [r, g, b] =
+    hue < 60 ? [chroma, secondary, 0]
+    : hue < 120 ? [secondary, chroma, 0]
+    : hue < 180 ? [0, chroma, secondary]
+    : hue < 240 ? [0, secondary, chroma]
+    : hue < 300 ? [secondary, 0, chroma]
+    : [chroma, 0, secondary];
+  const channel = (value: number) => Math.round((value + base) * 255).toString(16).padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+async function sampleDominantAccent(source: string): Promise<string | null> {
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = source;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = 24;
+    canvas.height = 24;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    context.drawImage(image, 0, 0, 24, 24);
+    const { data } = context.getImageData(0, 0, 24, 24);
+    // Vector-average the hue of sufficiently colorful pixels so opposing hues
+    // cancel instead of averaging to a muddy midpoint.
+    let x = 0;
+    let y = 0;
+    let count = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      const r = data[index] / 255;
+      const g = data[index + 1] / 255;
+      const b = data[index + 2] / 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max === 0 ? 0 : (max - min) / max;
+      if (saturation < 0.18 || max < 0.14) continue;
+      const delta = max - min;
+      const rawHue = delta === 0 ? 0
+        : max === r ? ((g - b) / delta) % 6
+        : max === g ? (b - r) / delta + 2
+        : (r - g) / delta + 4;
+      const radians = (rawHue * 60 * Math.PI) / 180;
+      x += Math.cos(radians) * saturation;
+      y += Math.sin(radians) * saturation;
+      count += 1;
+    }
+    if (count === 0) return null;
+    const hue = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    // Clamp to a usable UI accent: saturated and mid-light in any theme.
+    return hslToHex(hue, 0.68, 0.58);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve the "Auto" accent from the active wallpaper. Cached per wallpaper
+ *  identity; the live generative wallpaper keeps the default accent. */
+export async function resolveAutoAccent(
+  wallpaperId: string,
+  resolved: "light" | "dark",
+  wallpaper: WallpaperPreferences,
+): Promise<string | null> {
+  const cacheKey = `${wallpaperId}|${resolved}|${wallpaper.useCustom ? `custom:${wallpaper.revision}` : "curated"}`;
+  try {
+    const cached = JSON.parse(localStorage.getItem(AUTO_ACCENT_CACHE) ?? "null") as { key: string; hex: string } | null;
+    if (cached?.key === cacheKey && /^#[0-9a-f]{6}$/i.test(cached.hex)) return cached.hex;
+  } catch {
+    // Recompute below.
+  }
+  let source: string | null = null;
+  let revoke: (() => void) | null = null;
+  if (wallpaper.useCustom) {
+    const blob = await loadCustomWallpaper(resolved).catch(() => null);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      source = url;
+      revoke = () => URL.revokeObjectURL(url);
+    }
+  }
+  if (!source) {
+    const spec = WALLPAPERS.find((entry) => entry.id === wallpaperId);
+    source = spec ? wallpaperSource(spec, resolved) : null;
+  }
+  if (!source) return null;
+  const hex = await sampleDominantAccent(source);
+  revoke?.();
+  if (hex) {
+    try {
+      localStorage.setItem(AUTO_ACCENT_CACHE, JSON.stringify({ key: cacheKey, hex }));
+    } catch {
+      // The sample simply recomputes next time.
+    }
+  }
+  return hex;
 }
 
 const WALLPAPER_DB = "gravity-personal-wallpapers";
