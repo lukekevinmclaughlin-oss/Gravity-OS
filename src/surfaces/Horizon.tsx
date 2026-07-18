@@ -68,6 +68,8 @@ export function Horizon({
   const openRef = useRef(open);
   const targetRef = useRef<(typeof state.windows)[number] | undefined>(undefined);
   const paletteTimer = useRef<number | null>(null);
+  const dragSelect = useRef(false);
+  const pressHandled = useRef<string | null>(null);
   openRef.current = open;
   const clock = useClock();
 
@@ -140,6 +142,28 @@ export function Horizon({
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
   }, []);
+
+  // Drag-select: a press that began on a menu title commits whatever item the
+  // pointer releases over, exactly like a native menu bar. Releasing back on a
+  // title keeps the menu open; releasing anywhere else closes it.
+  useEffect(() => {
+    if (!open) return;
+    const onUp = (event: PointerEvent) => {
+      if (event.button !== 0 || !dragSelect.current) return;
+      dragSelect.current = false;
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const title = element?.closest<HTMLElement>("[data-hz-menu-key]");
+      if (title?.dataset.hzMenuKey !== pressHandled.current) pressHandled.current = null;
+      const item = element?.closest<HTMLButtonElement>(".hzMenu__item");
+      if (item && !item.disabled) {
+        item.click();
+        return;
+      }
+      if (!title && !element?.closest(".hzMenu")) setOpen(null);
+    };
+    window.addEventListener("pointerup", onUp);
+    return () => window.removeEventListener("pointerup", onUp);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -357,13 +381,28 @@ export function Horizon({
   };
 
   const titleProps = (key: string) => ({
-    onPointerDown: () => {
+    // Menus open on the down-stroke; press-drag-release commits an item in one
+    // gesture, and a second press on the open title closes it.
+    onPointerDown: (event: React.PointerEvent) => {
+      if (event.button !== 0) return;
       if (!openRef.current) targetRef.current = liveFocusedWin;
+      pressHandled.current = key;
+      dragSelect.current = openRef.current !== key;
+      openMenu(openRef.current === key ? null : key);
     },
-    onClick: () => openMenu(openRef.current === key ? null : key),
+    // The pointer path already toggled on pointerdown; click remains only for
+    // keyboard activation, which arrives without a preceding pointerdown.
+    onClick: () => {
+      if (pressHandled.current === key) {
+        pressHandled.current = null;
+        return;
+      }
+      openMenu(openRef.current === key ? null : key);
+    },
     onMouseEnter: () => {
       if (openRef.current && openRef.current !== key) setOpen(key);
     },
+    "data-hz-menu-key": key,
     "aria-haspopup": "menu" as const,
     "aria-expanded": open === key,
   });

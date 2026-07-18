@@ -40,6 +40,29 @@
     transform: translateX(40px) scale(0.96);
   }
 }
+/* Swipe-to-dismiss: the banner tracks the pointer with no easing, springs
+ * back when released under threshold, and flies out from wherever it was
+ * released once the swipe commits. */
+.pulse__toast {
+  touch-action: none;
+  transition: transform 280ms var(--ease-mass), opacity 200ms var(--ease-mass);
+}
+.pulse__toast.is-dragging {
+  transition: none;
+  user-select: none;
+}
+.pulse__toast.is-swiped {
+  animation: pulseSwipeOut 240ms var(--ease-fall) forwards;
+}
+@keyframes pulseSwipeOut {
+  from {
+    transform: translate3d(var(--pulse-swipe-from, 0px), 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(calc(100% + 48px), 0, 0);
+  }
+}
 .pulse__text {
   display: flex;
   flex-direction: column;

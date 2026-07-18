@@ -55,6 +55,26 @@ describe("MockShell interaction contract", () => {
     expect(shell.snapshot().windows.find((window) => window.id === target.id)?.maximized).toBe(false);
   });
 
+  it("toggles Show Desktop: hides every unparked window, then restores exactly that set", async () => {
+    const shell = new MockShell();
+    const parked = shell.snapshot().windows[1];
+    await shell.actions.parkWindow(parked.id, "well-1");
+    const alreadyMinimized = shell.snapshot().windows[2];
+    await shell.actions.minimizeWindow(alreadyMinimized.id);
+
+    await expect(shell.actions.toggleShowDesktop()).resolves.toBe(true);
+    const shown = shell.snapshot().windows;
+    expect(shown.filter((window) => !window.minimized && !window.parkedWellId)).toHaveLength(0);
+    expect(shown.find((window) => window.id === parked.id)?.parkedWellId).toBe("well-1");
+
+    await expect(shell.actions.toggleShowDesktop()).resolves.toBe(false);
+    const restored = shell.snapshot().windows;
+    // The set the toggle hid comes back; the window the user minimized stays down.
+    expect(restored.find((window) => window.id === alreadyMinimized.id)?.minimized).toBe(true);
+    expect(restored.filter((window) => !window.minimized).length).toBeGreaterThan(0);
+    expect(restored.find((window) => window.id === parked.id)?.parkedWellId).toBe("well-1");
+  });
+
   it("routes Horizon controls through the active-window contract", async () => {
     const shell = new MockShell();
     const target = shell.snapshot().windows.find((window) => window.focused)!;

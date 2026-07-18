@@ -37,6 +37,9 @@ pub trait ShellPlatform: Send + Sync {
     fn park_window(&self, window_id: &str, well_id: &str) -> Result<(), String>;
     fn release_window(&self, window_id: &str) -> Result<(), String>;
     fn release_all_parked_windows(&self) -> Result<(), String>;
+    /// Minimize every unparked window, or restore the set a previous toggle
+    /// hid. Returns true when the desktop was revealed.
+    fn toggle_show_desktop(&self) -> Result<bool, String>;
     fn configure_windowing(&self, gap: u32, cycling: bool);
     fn configure_rules(&self, rules: &[WindowRule]);
     fn configure_ignored(&self, app_ids: &[String]);

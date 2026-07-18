@@ -10,9 +10,9 @@ import { useDesktopWells, WELL_CAPACITY } from "../lib/wells";
 import { usePersonalization } from "../lib/customization";
 import "./orbit.css";
 
-/** Orbit — Gravity's dock. A Gaussian target field is integrated through a
- *  damped spring on one read/write-batched animation frame, so pointer motion,
- *  neighbour displacement, insertions and shelf exit all share one fluid law. */
+/** Orbit — Gravity's dock. While the pointer rides the shelf, tile widths are
+ *  a pure same-frame function of cursor X (zero smoothing — the Dock law); a
+ *  single damped spring ramps the whole field in and out on shelf enter/exit. */
 
 interface OrbitMenuState {
   appId: string;
@@ -41,6 +41,8 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
   const [launchErrors, setLaunchErrors] = useState<ReadonlyMap<string, string>>(new Map());
   const [trashArmed, setTrashArmed] = useState(false);
   const [windowDropTarget, setWindowDropTarget] = useState(false);
+  const [dockCapture, setDockCapture] = useState(false);
+  const [dockRelease, setDockRelease] = useState(false);
   const [draggedWindowId, setDraggedWindowId] = useState<string | null>(null);
   const [menu, setMenu] = useState<OrbitMenuState | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -56,15 +58,28 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
   const animationFrame = useRef<number | null>(null);
   const previousFrame = useRef<number | null>(null);
   const reducedMotion = useRef(false);
-  const motion = useRef(new Map<string, { width: number; velocity: number }>());
+  const presence = useRef({ value: 0, velocity: 0 });
+  const lastPointerX = useRef<number | null>(null);
   const layoutPositions = useRef(new Map<string, DOMRect>());
+  const previousMinimized = useRef<Set<string> | null>(null);
+  const dockReleaseTimer = useRef<number | null>(null);
+  const orbitExpanded = menu !== null || draggedWindowId !== null || windowDropTarget || dockCapture || dockRelease;
+  const flashDockRelease = () => {
+    if (dockReleaseTimer.current !== null) window.clearTimeout(dockReleaseTimer.current);
+    setDockRelease(false);
+    requestAnimationFrame(() => setDockRelease(true));
+    dockReleaseTimer.current = window.setTimeout(() => {
+      setDockRelease(false);
+      dockReleaseTimer.current = null;
+    }, 820);
+  };
 
   useEffect(() => {
-    void growOrbitWindow(menu !== null);
+    void growOrbitWindow(orbitExpanded);
     return () => {
-      if (menu !== null) void growOrbitWindow(false);
+      if (orbitExpanded) void growOrbitWindow(false);
     };
-  }, [menu]);
+  }, [orbitExpanded]);
 
   useEffect(() => {
     if (!menu) return;
@@ -103,6 +118,16 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
   }, [state.apps, state.notifications]);
 
   useEffect(() => {
+    const next = new Set(state.windows.filter((window) => window.minimized).map((window) => window.id));
+    const previous = previousMinimized.current;
+    previousMinimized.current = next;
+    if (!previous || ![...next].some((id) => !previous.has(id))) return;
+    setDockCapture(true);
+    const timer = window.setTimeout(() => setDockCapture(false), 620);
+    return () => window.clearTimeout(timer);
+  }, [state.windows]);
+
+  useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => {
       reducedMotion.current = preference.matches;
@@ -114,6 +139,7 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
 
   useEffect(() => () => {
     if (animationFrame.current !== null) cancelAnimationFrame(animationFrame.current);
+    if (dockReleaseTimer.current !== null) window.clearTimeout(dockReleaseTimer.current);
   }, []);
 
   useLayoutEffect(() => {
@@ -204,6 +230,7 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
         ({ payload }) => {
           setDraggedWindowId((current) => current === payload.windowId ? null : current);
           if (payload.error) setActionError(`Window could not leave Orbit: ${payload.error}`);
+          else if (payload.moved) flashDockRelease();
         },
       );
       const stopAppDrag = await listen<{ appId: string; error: string | null }>(
@@ -277,57 +304,57 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
     const deltaTime = Math.min(Math.max(elapsed, 1 / 240), 0.032);
     previousFrame.current = timestamp;
 
+    // The magnification field is 1:1 with the cursor; only the field's overall
+    // presence is spring-ramped, so entering/leaving the shelf feels physical
+    // while in-shelf tracking has zero lag.
+    const target = pointerX.current === null ? 0 : 1;
+    const ramp = presence.current;
+    if (reducedMotion.current) {
+      ramp.value = target;
+      ramp.velocity = 0;
+    } else {
+      const returning = target === 0;
+      const profile = personalization.dock.motion === "gentle"
+        ? { stiffness: returning ? 220 : 285, damping: returning ? 31 : 33 }
+        : personalization.dock.motion === "expressive"
+          ? { stiffness: returning ? 370 : 540, damping: returning ? 34 : 38 }
+          : { stiffness: returning ? 300 : 430, damping: returning ? 34 : 37 };
+      const acceleration = profile.stiffness * (target - ramp.value) - profile.damping * ramp.velocity;
+      ramp.velocity += acceleration * deltaTime;
+      ramp.value += ramp.velocity * deltaTime;
+    }
+    const settled = Math.abs(target - ramp.value) < 0.004 && Math.abs(ramp.velocity) < 0.02;
+    if (settled) {
+      ramp.value = target;
+      ramp.velocity = 0;
+      if (target === 0) lastPointerX.current = null;
+    }
+    const shapeX = pointerX.current ?? lastPointerX.current;
+    const strength = Math.max(0, Math.min(1, ramp.value));
+
     // Batch all layout reads before writes so one growing tile cannot shift
     // the center used to calculate its neighbours in the same frame.
     const entries = [...tileRefs.current.entries()]
       .filter(([, element]) => element.isConnected)
-      .map(([key, element]) => ({ key, element, rect: element.getBoundingClientRect() }));
-    const activeKeys = new Set(entries.map(({ key }) => key));
-    for (const key of motion.current.keys()) {
-      if (!activeKeys.has(key)) motion.current.delete(key);
-    }
-
-    let unsettled = false;
-    for (const { key, element, rect } of entries) {
-      const target = pointerX.current === null
+      .map(([, element]) => ({ element, rect: element.getBoundingClientRect() }));
+    for (const { element, rect } of entries) {
+      const magnified = shapeX === null
         ? BASE
-        : BASE * magnify(rect.left + rect.width / 2 - pointerX.current, MAX_SCALE, SIGMA);
-      const value = motion.current.get(key) ?? { width: rect.width || BASE, velocity: 0 };
-
-      if (reducedMotion.current) {
-        value.width = target;
-        value.velocity = 0;
-      } else {
-        const returning = pointerX.current === null;
-        const profile = personalization.dock.motion === "gentle"
-          ? { stiffness: returning ? 220 : 285, damping: returning ? 31 : 33 }
-          : personalization.dock.motion === "expressive"
-            ? { stiffness: returning ? 370 : 540, damping: returning ? 34 : 38 }
-            : { stiffness: returning ? 300 : 430, damping: returning ? 34 : 37 };
-        const { stiffness, damping } = profile;
-        const acceleration = stiffness * (target - value.width) - damping * value.velocity;
-        value.velocity += acceleration * deltaTime;
-        value.width += value.velocity * deltaTime;
-        value.width = Math.max(BASE * 0.98, Math.min(BASE * (MAX_SCALE + .04), value.width));
-        if (Math.abs(target - value.width) > 0.08 || Math.abs(value.velocity) > 0.25) {
-          unsettled = true;
-        } else {
-          value.width = target;
-          value.velocity = 0;
-        }
-      }
-
-      motion.current.set(key, value);
-      element.style.width = `${value.width.toFixed(3)}px`;
-      element.style.setProperty("--orbit-energy", `${Math.max(0, (value.width - BASE) / BASE).toFixed(3)}`);
+        : BASE * magnify(rect.left + rect.width / 2 - shapeX, MAX_SCALE, SIGMA);
+      const width = BASE + (magnified - BASE) * strength;
+      element.style.width = `${width.toFixed(3)}px`;
+      element.style.setProperty("--orbit-energy", `${Math.max(0, (width - BASE) / BASE).toFixed(3)}`);
     }
 
-    if (unsettled) animationFrame.current = requestAnimationFrame(animateMagnify);
+    // While the pointer rests inside a settled field, widths are already exact;
+    // the next pointer move schedules the next frame.
+    if (!settled) animationFrame.current = requestAnimationFrame(animateMagnify);
     else previousFrame.current = null;
   };
 
   const applyMagnify = (mouseX: number | null) => {
     pointerX.current = mouseX;
+    if (mouseX !== null) lastPointerX.current = mouseX;
     if (animationFrame.current === null) animationFrame.current = requestAnimationFrame(animateMagnify);
   };
 
@@ -476,6 +503,35 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
     window.addEventListener("mouseup", finish, { once: true });
   };
 
+  const updateWindowDrag = (clientX: number, clientY: number) => {
+    const drag = windowDrag.current;
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(clientX - drag.startX, clientY - drag.startY) > 6) {
+      drag.moved = true;
+      setDraggedWindowId(drag.id);
+      applyMagnify(null);
+    }
+  };
+
+  const completeWindowDrag = (clientX: number, clientY: number) => {
+    const drag = windowDrag.current;
+    if (!drag) return;
+    windowDrag.current = null;
+    setDraggedWindowId(null);
+    if (!drag.moved) return;
+    suppressWindowClick.current = drag.id;
+    flashDockRelease();
+    void (async () => {
+      const pointer = await actions.desktopPointerLocation(clientX, clientY);
+      const width = 0.42;
+      const height = 0.48;
+      const x = Math.max(0, Math.min(1 - width, pointer.x - width / 2));
+      const y = Math.max(0, Math.min(1 - height, pointer.y - height / 2));
+      await actions.focusWindow(drag.id);
+      await actions.applyGridRegionOnMonitor(drag.id, pointer.monitor, x, y, width, height);
+    })().catch((error) => setActionError(`Window could not leave Orbit: ${String(error)}`));
+  };
+
   const beginWindowDrag = (event: React.PointerEvent<HTMLButtonElement>, windowId: string) => {
     if (event.button !== 0) return;
     if (isTauri()) {
@@ -493,39 +549,26 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
       moved: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
+    const move = (next: PointerEvent) => updateWindowDrag(next.clientX, next.clientY);
+    const finish = (next: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      completeWindowDrag(next.clientX, next.clientY);
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
   };
 
-  const moveWindowDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = windowDrag.current;
-    if (!drag) return;
-    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 6) {
-      drag.moved = true;
-      setDraggedWindowId(drag.id);
-      applyMagnify(null);
-    }
-  };
+  const moveWindowDrag = (event: React.PointerEvent<HTMLButtonElement>) =>
+    updateWindowDrag(event.clientX, event.clientY);
 
   const finishWindowDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = windowDrag.current;
-    if (!drag) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    windowDrag.current = null;
-    setDraggedWindowId(null);
-    if (!drag.moved) return;
-    suppressWindowClick.current = drag.id;
-    const clientX = event.clientX;
-    const clientY = event.clientY;
-    void (async () => {
-      const pointer = await actions.desktopPointerLocation(clientX, clientY);
-      const width = 0.42;
-      const height = 0.48;
-      const x = Math.max(0, Math.min(1 - width, pointer.x - width / 2));
-      const y = Math.max(0, Math.min(1 - height, pointer.y - height / 2));
-      await actions.focusWindow(drag.id);
-      await actions.applyGridRegionOnMonitor(drag.id, pointer.monitor, x, y, width, height);
-    })().catch((error) => setActionError(`Window could not leave Orbit: ${String(error)}`));
+    completeWindowDrag(event.clientX, event.clientY);
   };
 
   const menuApp = menu ? state.apps.find((app) => app.id === menu.appId) : undefined;
@@ -542,7 +585,7 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
 
   return (
     <nav
-      className={`orbit glass is-material-${personalization.dock.material} is-motion-${personalization.dock.motion} ${personalization.dock.showLabels ? "" : "hide-labels"} ${personalization.dock.showIndicators ? "" : "hide-indicators"} ${personalization.dock.showBadges ? "" : "hide-badges"} ${live ? "is-live" : ""} ${windowDropTarget ? "is-window-drop-target" : ""}`}
+      className={`orbit glass is-material-${personalization.dock.material} is-motion-${personalization.dock.motion} ${personalization.dock.showLabels ? "" : "hide-labels"} ${personalization.dock.showIndicators ? "" : "hide-indicators"} ${personalization.dock.showBadges ? "" : "hide-badges"} ${live ? "is-live" : ""} ${windowDropTarget ? "is-window-drop-target" : ""} ${dockCapture ? "is-window-captured" : ""}`}
       style={{ "--orbit-gap": `${personalization.dock.spacing}px`, "--orbit-opacity": personalization.dock.opacity } as React.CSSProperties}
       onMouseEnter={(event) => {
         setLive(true);
@@ -555,6 +598,18 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
       }}
     >
       {menu && <button className="orbitContextDismiss" aria-label="Close app menu" onClick={() => setMenu(null)} />}
+      <span className="orbitCaptureFx" aria-hidden="true">
+        <span className="orbitCaptureFx__portal"><i /><i /><i /></span>
+        <span className="orbitCaptureFx__beam" />
+        <span className="orbitCaptureFx__particles"><i /><i /><i /><i /><i /><i /><i /><i /></span>
+      </span>
+      {dockRelease && (
+        <span className="orbitReleaseFx" aria-hidden="true">
+          <span className="orbitReleaseFx__launchRing"><i /><i /></span>
+          <span className="orbitReleaseFx__wake" />
+          <span className="orbitReleaseFx__sparks"><i /><i /><i /><i /><i /><i /><i /><i /></span>
+        </span>
+      )}
       {items.map((app) => {
         const running = isAppRunning(state, app.id);
         const notificationCount = notificationsByApp.get(app.id)?.length ?? 0;
@@ -640,6 +695,10 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
             onContextMenu={(event) => openAppMenu(event, window.appId)}
           >
             <span className="orbitItem__label glass-heavy">{window.title}</span>
+            <span className="orbitWindow__escapeFx" aria-hidden="true">
+              <span className="orbitWindow__tether" />
+              <span className="orbitWindow__escapeParticles"><i /><i /><i /><i /><i /><i /></span>
+            </span>
             <span className="orbitWindow__preview">
               <span className="orbitWindow__bar"><i /><i /><i /></span>
               <span className="orbitWindow__body">

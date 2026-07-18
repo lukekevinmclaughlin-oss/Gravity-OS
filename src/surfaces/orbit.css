@@ -51,9 +51,207 @@
   animation: orbit-native-window-target 720ms var(--ease-mass) infinite alternate;
 }
 
+.orbitCaptureFx {
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  z-index: 0;
+  width: min(360px, 62vw);
+  height: 260px;
+  translate: -50% 0;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0;
+  transform: perspective(500px) rotateX(64deg) scale(.72);
+  transform-origin: 50% 100%;
+  transition: opacity 150ms ease, transform 260ms var(--ease-mass);
+}
+.orbitCaptureFx__portal,
+.orbitCaptureFx__portal i,
+.orbitCaptureFx__particles { position: absolute; inset: 0; }
+.orbitCaptureFx__portal {
+  top: auto;
+  bottom: -6px;
+  height: 102px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 42%, transparent), transparent 63%);
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 52%, transparent));
+}
+.orbitCaptureFx__portal::before {
+  content: "";
+  position: absolute;
+  inset: 21px 32px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, color-mix(in srgb, white 55%, var(--accent)) 0 3%, color-mix(in srgb, var(--accent) 56%, transparent) 13%, transparent 57%);
+  box-shadow: inset 0 0 24px var(--accent), 0 0 20px color-mix(in srgb, var(--accent) 62%, transparent);
+}
+.orbitCaptureFx__portal i {
+  margin: auto;
+  width: 94%;
+  height: 76%;
+  border: 1px solid color-mix(in srgb, var(--accent) 68%, white 32%);
+  border-radius: 50%;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 46%, transparent), inset 0 0 12px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.orbitCaptureFx__portal i:nth-child(2) { width: 72%; height: 56%; opacity: .66; }
+.orbitCaptureFx__portal i:nth-child(3) { width: 48%; height: 36%; opacity: .48; }
+.orbitCaptureFx__beam {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 39px;
+  height: 212px;
+  clip-path: polygon(34% 0, 66% 0, 100% 100%, 0 100%);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9%, color-mix(in srgb, var(--accent) 12%, transparent) 10% 11%, transparent 12% 20%),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 30%, transparent));
+  filter: blur(2px);
+  opacity: .78;
+}
+.orbitCaptureFx__particles i {
+  --dock-particle-x: 0px;
+  --dock-particle-delay: 0ms;
+  position: absolute;
+  left: 50%;
+  bottom: 48px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 7px white, 0 0 14px var(--accent);
+  opacity: 0;
+}
+.orbitCaptureFx__particles i:nth-child(1) { --dock-particle-x: -118px; --dock-particle-delay: -80ms; }
+.orbitCaptureFx__particles i:nth-child(2) { --dock-particle-x: -82px; --dock-particle-delay: -240ms; }
+.orbitCaptureFx__particles i:nth-child(3) { --dock-particle-x: -46px; --dock-particle-delay: -400ms; }
+.orbitCaptureFx__particles i:nth-child(4) { --dock-particle-x: -15px; --dock-particle-delay: -560ms; }
+.orbitCaptureFx__particles i:nth-child(5) { --dock-particle-x: 20px; --dock-particle-delay: -720ms; }
+.orbitCaptureFx__particles i:nth-child(6) { --dock-particle-x: 54px; --dock-particle-delay: -880ms; }
+.orbitCaptureFx__particles i:nth-child(7) { --dock-particle-x: 88px; --dock-particle-delay: -1040ms; }
+.orbitCaptureFx__particles i:nth-child(8) { --dock-particle-x: 124px; --dock-particle-delay: -1200ms; }
+.orbit.is-window-drop-target .orbitCaptureFx,
+.orbit.is-window-captured .orbitCaptureFx { opacity: 1; transform: perspective(500px) rotateX(64deg) scale(1); }
+.orbit.is-window-drop-target .orbitCaptureFx__portal { animation: orbit-portal-breathe 780ms var(--ease-mass) infinite alternate; }
+.orbit.is-window-drop-target .orbitCaptureFx__portal i { animation: orbit-portal-collapse 1.45s var(--ease-mass) infinite; }
+.orbit.is-window-drop-target .orbitCaptureFx__portal i:nth-child(2) { animation-delay: -480ms; }
+.orbit.is-window-drop-target .orbitCaptureFx__portal i:nth-child(3) { animation-delay: -960ms; }
+.orbit.is-window-drop-target .orbitCaptureFx__particles i { animation: orbit-particle-capture 1.28s ease-in var(--dock-particle-delay) infinite; }
+.orbit.is-window-captured .orbitCaptureFx { animation: orbit-capture-flash 620ms var(--ease-mass) both; }
+.orbit.is-window-captured .orbitCaptureFx__portal i { animation: orbit-capture-wave 580ms var(--ease-mass) both; }
+.orbitReleaseFx {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 2;
+  width: 180px;
+  height: 220px;
+  translate: -50% 0;
+  overflow: visible;
+  pointer-events: none;
+  animation: orbit-release-fade 820ms ease-out both;
+}
+.orbitReleaseFx__launchRing,
+.orbitReleaseFx__launchRing i,
+.orbitReleaseFx__sparks { position: absolute; inset: 0; }
+.orbitReleaseFx__launchRing {
+  top: auto;
+  bottom: -8px;
+  height: 60px;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, white 28%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 46%, transparent), transparent 67%);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 52%, transparent), inset 0 0 13px color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: orbit-release-ring 760ms var(--ease-mass) both;
+}
+.orbitReleaseFx__launchRing i {
+  margin: auto;
+  width: 68%;
+  height: 62%;
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, white 38%);
+  border-radius: 50%;
+  animation: orbit-release-ring-inner 700ms var(--ease-mass) both;
+}
+.orbitReleaseFx__launchRing i:nth-child(2) { width: 38%; height: 34%; animation-delay: 70ms; }
+.orbitReleaseFx__wake {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  width: 42px;
+  height: 184px;
+  translate: -50% 0;
+  clip-path: polygon(39% 0, 61% 0, 100% 100%, 0 100%);
+  background: linear-gradient(0deg, color-mix(in srgb, var(--accent) 48%, transparent), color-mix(in srgb, white 58%, var(--accent)), transparent);
+  filter: blur(2px) drop-shadow(0 0 10px var(--accent));
+  transform-origin: 50% 100%;
+  animation: orbit-release-wake 760ms cubic-bezier(.2,.7,.2,1) both;
+}
+.orbitReleaseFx__sparks i {
+  --release-x: 0px;
+  --release-delay: 0ms;
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 7px white, 0 0 13px var(--accent);
+  animation: orbit-release-spark 720ms ease-out var(--release-delay) both;
+}
+.orbitReleaseFx__sparks i:nth-child(1) { --release-x: -68px; --release-delay: 0ms; }
+.orbitReleaseFx__sparks i:nth-child(2) { --release-x: -48px; --release-delay: 35ms; }
+.orbitReleaseFx__sparks i:nth-child(3) { --release-x: -27px; --release-delay: 70ms; }
+.orbitReleaseFx__sparks i:nth-child(4) { --release-x: -10px; --release-delay: 105ms; }
+.orbitReleaseFx__sparks i:nth-child(5) { --release-x: 12px; --release-delay: 105ms; }
+.orbitReleaseFx__sparks i:nth-child(6) { --release-x: 30px; --release-delay: 70ms; }
+.orbitReleaseFx__sparks i:nth-child(7) { --release-x: 51px; --release-delay: 35ms; }
+.orbitReleaseFx__sparks i:nth-child(8) { --release-x: 70px; --release-delay: 0ms; }
+
 @keyframes orbit-native-window-target {
   from { transform: translateX(-50%) translateY(0) scale(1); }
   to { transform: translateX(-50%) translateY(-3px) scale(1.012); }
+}
+
+@keyframes orbit-portal-breathe { to { scale: 1.08; filter: brightness(1.35) drop-shadow(0 0 24px var(--accent)); } }
+@keyframes orbit-portal-collapse {
+  from { scale: 1.45; opacity: 0; }
+  24% { opacity: .86; }
+  to { scale: .2; opacity: 0; }
+}
+@keyframes orbit-particle-capture {
+  from { transform: translate(var(--dock-particle-x), -190px) scale(.45); opacity: 0; }
+  18% { opacity: 1; }
+  76% { opacity: .84; }
+  to { transform: translate(0, 5px) scale(1.7); opacity: 0; }
+}
+@keyframes orbit-capture-flash {
+  0% { opacity: .3; scale: .8; filter: brightness(1); }
+  36% { opacity: 1; scale: 1.08; filter: brightness(1.9); }
+  to { opacity: 0; scale: 1.28; filter: brightness(1); }
+}
+@keyframes orbit-capture-wave { from { scale: .18; opacity: 1; } to { scale: 1.72; opacity: 0; } }
+@keyframes orbit-release-fade { 0%, 76% { opacity: 1; } to { opacity: 0; } }
+@keyframes orbit-release-ring { from { scale: .28; opacity: 1; } to { scale: 1.5; opacity: 0; } }
+@keyframes orbit-release-ring-inner { from { scale: .18; opacity: 1; } to { scale: 1.7; opacity: 0; } }
+@keyframes orbit-release-wake {
+  from { scale: .18 .12; opacity: 1; }
+  28% { scale: 1 1; opacity: 1; }
+  68% { translate: -50% -34px; scale: .72 1.08; opacity: .9; }
+  to { translate: -50% -76px; scale: .18 1.28; opacity: 0; }
+}
+@keyframes orbit-release-spark {
+  from { transform: translate(0, 0) scale(1.4); opacity: 1; }
+  to { transform: translate(var(--release-x), -142px) scale(.12); opacity: 0; }
+}
+@keyframes orbit-window-escape {
+  from { transform: translateY(-10px) scale(1.065) rotate(-1deg); filter: brightness(1); }
+  to { transform: translateY(-19px) scale(1.105) rotate(1deg); filter: brightness(1.22); }
+}
+@keyframes orbit-escape-tether { to { height: 120px; opacity: .68; scale: .7 1; } }
+@keyframes orbit-escape-ring { to { translate: -50% -50%; scale: .18; opacity: 0; } }
+@keyframes orbit-escape-particle {
+  from { transform: translate(0, 0) scale(1.4); opacity: 1; }
+  to { transform: translate(var(--escape-x), -122px) scale(.15); opacity: 0; }
 }
 
 .orbitItem {
@@ -214,7 +412,71 @@
 .orbitWindow.is-window-dragging .orbitWindow__preview {
   transform: translateY(-12px) scale(1.08);
   border-color: color-mix(in srgb, var(--accent) 70%, white 20%);
+  animation: orbit-window-escape 760ms ease-in-out infinite alternate;
 }
+.orbitWindow__escapeFx {
+  position: absolute;
+  left: 50%;
+  bottom: 13px;
+  z-index: 0;
+  width: 84px;
+  height: 138px;
+  translate: -50% 0;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.orbitWindow__tether {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 3px;
+  height: 104px;
+  translate: -50% 0;
+  border-radius: 99px;
+  background: linear-gradient(0deg, var(--accent), color-mix(in srgb, white 74%, var(--accent)), transparent);
+  box-shadow: 0 0 7px white, 0 0 16px var(--accent);
+  transform-origin: 50% 100%;
+}
+.orbitWindow__tether::before,
+.orbitWindow__tether::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 48px;
+  height: 16px;
+  translate: -50% -50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, white 28%);
+  border-radius: 50%;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 44%, transparent);
+}
+.orbitWindow__tether::before { top: 24%; }
+.orbitWindow__tether::after { top: 68%; width: 30px; opacity: .62; }
+.orbitWindow__escapeParticles i {
+  --escape-x: 0px;
+  --escape-delay: 0ms;
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 7px white, 0 0 13px var(--accent);
+}
+.orbitWindow__escapeParticles i:nth-child(1) { --escape-x: -28px; --escape-delay: -80ms; }
+.orbitWindow__escapeParticles i:nth-child(2) { --escape-x: -17px; --escape-delay: -220ms; }
+.orbitWindow__escapeParticles i:nth-child(3) { --escape-x: -6px; --escape-delay: -360ms; }
+.orbitWindow__escapeParticles i:nth-child(4) { --escape-x: 7px; --escape-delay: -500ms; }
+.orbitWindow__escapeParticles i:nth-child(5) { --escape-x: 18px; --escape-delay: -640ms; }
+.orbitWindow__escapeParticles i:nth-child(6) { --escape-x: 29px; --escape-delay: -780ms; }
+.orbitWindow.is-window-dragging .orbitWindow__escapeFx { opacity: 1; }
+.orbitWindow.is-window-dragging .orbitWindow__tether { animation: orbit-escape-tether 620ms ease-in-out infinite alternate; }
+.orbitWindow.is-window-dragging .orbitWindow__tether::before,
+.orbitWindow.is-window-dragging .orbitWindow__tether::after { animation: orbit-escape-ring 720ms linear infinite; }
+.orbitWindow.is-window-dragging .orbitWindow__tether::after { animation-delay: -360ms; }
+.orbitWindow.is-window-dragging .orbitWindow__escapeParticles i { animation: orbit-escape-particle 920ms ease-out var(--escape-delay) infinite; }
 @keyframes orbit-window-in {
   from { opacity: 0; transform: translateY(12px) scale(.82); }
 }
@@ -390,6 +652,11 @@
   .orbitItem.is-error .orbitItem__tileWrap,
   .orbitError,
   .orbitWindow,
+  .orbitWindow__escapeFx *,
+  .orbitCaptureFx,
+  .orbitCaptureFx *,
+  .orbitReleaseFx,
+  .orbitReleaseFx *,
   .orbit.is-window-drop-target,
   .orbitContext { animation: none; }
   .orbitItem { transition-duration: 1ms; }
@@ -477,4 +744,14 @@
   height: 1px;
   margin: 5px 4px;
   background: var(--glass-border);
+}
+
+/* Surface entrance - the shelf settles in once per boot, never mid-session. */
+.orbit {
+  animation: orbitSettle 300ms var(--ease-mass);
+}
+@keyframes orbitSettle {
+  from {
+    opacity: 0;
+  }
 }

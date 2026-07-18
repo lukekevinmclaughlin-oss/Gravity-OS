@@ -216,3 +216,38 @@
   color: var(--ink);
   text-align: left;
 }
+
+/* Boot veil - the desk fades up from black with a monogram pulse (NS-2.4). */
+.deepField__veil {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #000;
+  pointer-events: none;
+  animation: deepFieldVeilLift 600ms var(--ease-mass) 320ms forwards;
+}
+.deepField__veilMark {
+  color: var(--accent);
+  animation: deepFieldVeilPulse 900ms var(--ease-mass);
+}
+@keyframes deepFieldVeilLift {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes deepFieldVeilPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+}

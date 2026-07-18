@@ -1102,6 +1102,13 @@ pub fn release_all_parked_windows(
 }
 
 #[tauri::command]
+pub fn toggle_show_desktop(app: tauri::AppHandle, state: State<AppState>) -> Result<bool, String> {
+    let revealed = state.platform.toggle_show_desktop()?;
+    state_changed(&app);
+    Ok(revealed)
+}
+
+#[tauri::command]
 pub fn launch_app(
     app: tauri::AppHandle,
     state: State<AppState>,

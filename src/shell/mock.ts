@@ -49,6 +49,7 @@ const win = (appId: string, title: string, orbitId: string, focused = false): Wi
 
 export class MockShell implements ShellProviderI {
   private listeners = new Set<() => void>();
+  private showDesktopStack: string[] | null = null;
   private state: ShellState = {
     apps: APPS,
     windows: [
@@ -436,6 +437,31 @@ export class MockShell implements ShellProviderI {
       });
     },
     emptyTrash: async () => this.patchStatus({ trashFull: false }),
+    toggleShowDesktop: async () => {
+      const stack = this.showDesktopStack;
+      const restorable = stack?.filter((id) =>
+        this.state.windows.some((window) => window.id === id && window.minimized)
+      ) ?? [];
+      if (restorable.length > 0) {
+        this.showDesktopStack = null;
+        this.emit({
+          windows: this.state.windows.map((window) =>
+            restorable.includes(window.id) ? { ...window, minimized: false } : window
+          ),
+        });
+        return false;
+      }
+      const targets = this.state.windows
+        .filter((window) => !window.minimized && !window.parkedWellId)
+        .map((window) => window.id);
+      this.showDesktopStack = targets;
+      this.emit({
+        windows: this.state.windows.map((window) =>
+          targets.includes(window.id) ? { ...window, minimized: true, focused: false } : window
+        ),
+      });
+      return true;
+    },
     powerAction: async (kind) => this.notify("Gravity", "Power", `“${kind}” is simulated on the mock machine.`),
     editAction: async (kind) => this.notify("Gravity", "Edit command sent", kind),
     openSetting: async (uri) => this.notify("Gravity", "Settings", `Would open ${uri} on Windows.`),

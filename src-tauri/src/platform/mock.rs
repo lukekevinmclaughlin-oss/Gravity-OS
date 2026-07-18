@@ -11,6 +11,7 @@ use crate::shell::{
 
 pub struct MockPlatform {
     state: Mutex<ShellState>,
+    show_desktop_stack: Mutex<Vec<String>>,
 }
 
 impl MockPlatform {
@@ -77,6 +78,7 @@ impl MockPlatform {
         };
         Self {
             state: Mutex::new(state),
+            show_desktop_stack: Mutex::new(Vec::new()),
         }
     }
 }
@@ -257,6 +259,43 @@ impl ShellPlatform for MockPlatform {
             window.parked_well_id = None;
         }
         Ok(())
+    }
+    fn toggle_show_desktop(&self) -> Result<bool, String> {
+        let mut state = self.state.lock();
+        let mut stack = self.show_desktop_stack.lock();
+        let restorable: Vec<String> = stack
+            .iter()
+            .filter(|id| {
+                state
+                    .windows
+                    .iter()
+                    .any(|window| &window.id == *id && window.minimized)
+            })
+            .cloned()
+            .collect();
+        if !restorable.is_empty() {
+            for window in &mut state.windows {
+                if restorable.contains(&window.id) {
+                    window.minimized = false;
+                }
+            }
+            stack.clear();
+            return Ok(false);
+        }
+        *stack = state
+            .windows
+            .iter()
+            .filter(|window| !window.minimized && window.parked_well_id.is_none())
+            .map(|window| window.id.clone())
+            .collect();
+        let targets = stack.clone();
+        for window in &mut state.windows {
+            if targets.contains(&window.id) {
+                window.minimized = true;
+                window.focused = false;
+            }
+        }
+        Ok(true)
     }
     fn configure_windowing(&self, gap: u32, cycling: bool) {
         let mut state = self.state.lock();

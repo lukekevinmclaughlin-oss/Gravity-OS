@@ -55,6 +55,9 @@ struct Internal {
     brightness: Option<f32>,
     window_orbits: HashMap<isize, String>,
     parked_wells: HashMap<isize, String>,
+    /// Windows a Show Desktop toggle minimized, so the next toggle can bring
+    /// exactly that set back.
+    show_desktop_stack: Vec<isize>,
     rules: Vec<WindowRule>,
     ruled_windows: HashSet<isize>,
     ignored_apps: HashSet<String>,
@@ -101,6 +104,7 @@ impl WindowsPlatform {
                 brightness: display_brightness,
                 window_orbits: HashMap::new(),
                 parked_wells: HashMap::new(),
+                show_desktop_stack: Vec::new(),
                 rules: Vec::new(),
                 ruled_windows: HashSet::new(),
                 ignored_apps: HashSet::new(),
@@ -568,6 +572,44 @@ impl ShellPlatform for WindowsPlatform {
             }
         }
         Ok(())
+    }
+
+    fn toggle_show_desktop(&self) -> Result<bool, String> {
+        let windows = self.snapshot().windows;
+        let minimized_now: HashSet<isize> = windows
+            .iter()
+            .filter(|window| window.minimized)
+            .filter_map(|window| window.id.parse::<isize>().ok())
+            .collect();
+        let restorable: Vec<isize> = self
+            .inner
+            .lock()
+            .show_desktop_stack
+            .iter()
+            .copied()
+            .filter(|handle| minimized_now.contains(handle))
+            .collect();
+        if !restorable.is_empty() {
+            for handle in &restorable {
+                unsafe {
+                    let _ = ShowWindow(HWND(*handle as *mut c_void), SW_RESTORE);
+                }
+            }
+            self.inner.lock().show_desktop_stack.clear();
+            return Ok(false);
+        }
+        let targets: Vec<isize> = windows
+            .iter()
+            .filter(|window| !window.minimized && window.parked_well_id.is_none())
+            .filter_map(|window| window.id.parse::<isize>().ok())
+            .collect();
+        for handle in &targets {
+            unsafe {
+                let _ = ShowWindow(HWND(*handle as *mut c_void), SW_MINIMIZE);
+            }
+        }
+        self.inner.lock().show_desktop_stack = targets;
+        Ok(true)
     }
 
     fn configure_windowing(&self, gap: u32, cycling: bool) {

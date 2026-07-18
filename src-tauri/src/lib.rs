@@ -619,6 +619,7 @@ pub fn run() {
             commands::park_window,
             commands::release_window,
             commands::release_all_parked_windows,
+            commands::toggle_show_desktop,
             commands::register_desktop_wells,
             commands::set_well_surface_expanded,
             commands::set_pulse_interaction_region,

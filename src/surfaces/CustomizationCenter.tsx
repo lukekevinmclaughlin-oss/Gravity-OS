@@ -45,6 +45,9 @@ export function CustomizationCenter({ open, onClose }: CustomizationCenterProps)
   const patchWallpaper = (patch: Partial<PersonalizationPreferences["wallpaper"]>) => {
     setPreferences((current) => ({ ...current, wallpaper: { ...current.wallpaper, ...patch } }));
   };
+  const patchDesktop = (patch: Partial<PersonalizationPreferences["desktop"]>) => {
+    setPreferences((current) => ({ ...current, desktop: { ...current.desktop, ...patch } }));
+  };
 
   const chooseAppearance = async (mode: AppearanceMode) => {
     try {
@@ -189,6 +192,13 @@ export function CustomizationCenter({ open, onClose }: CustomizationCenterProps)
                     <Range label="Blur" value={preferences.wallpaper.blur} min={0} max={18} step={1} format={(value) => `${value}px`} onChange={(value) => patchWallpaper({ blur: value })} />
                     <Range label="Saturation" value={preferences.wallpaper.saturation} min={.4} max={1.6} step={.05} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => patchWallpaper({ saturation: value })} />
                     <label><span>Tint</span><div className="customization__color"><input type="color" value={preferences.wallpaper.tint} onChange={(event) => patchWallpaper({ tint: event.target.value })} /><input type="range" min="0" max=".55" step=".01" value={preferences.wallpaper.tintStrength} onChange={(event) => patchWallpaper({ tintStrength: Number(event.target.value) })} /></div></label>
+                  </div>
+                </section>
+
+                <section className="customization__section">
+                  <div className="customization__title"><span><strong>Desktop gestures</strong><small>Direct manipulation on the bare wallpaper</small></span></div>
+                  <div className="customization__toggles">
+                    <Toggle label="Double-click wallpaper shows the desktop" checked={preferences.desktop.doubleClickShowsDesktop} onChange={(doubleClickShowsDesktop) => patchDesktop({ doubleClickShowsDesktop })} />
                   </div>
                 </section>
 

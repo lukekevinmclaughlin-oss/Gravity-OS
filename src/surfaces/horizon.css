@@ -353,3 +353,13 @@
 @keyframes hz-toast-in {
   from { opacity: 0; transform: translate(-50%, -5px) scale(.98); }
 }
+
+/* Surface entrance - the bar settles in once per boot, never mid-session. */
+.horizon__bar {
+  animation: horizonSettle 300ms var(--ease-mass);
+}
+@keyframes horizonSettle {
+  from {
+    opacity: 0;
+  }
+}

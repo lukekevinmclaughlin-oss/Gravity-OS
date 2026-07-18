@@ -206,6 +206,9 @@ export interface ShellActions {
   switchOrbit(id: string): Promise<void>;
   moveWindowToOrbit(windowId: string, orbitId: string): Promise<void>;
   emptyTrash(): Promise<void>;
+  /** Minimize every unparked window, or restore the set a previous toggle hid.
+   *  Resolves true when the desktop was revealed, false when windows returned. */
+  toggleShowDesktop(): Promise<boolean>;
   /** Real session actions; the development shell presents a visible simulation. */
   powerAction(kind: PowerKind): Promise<void>;
   /** Synthesize an edit chord into the currently focused foreign window. */

@@ -36,9 +36,39 @@ export interface WallpaperPreferences {
   revision: number;
 }
 
+export type AccentId =
+  | "graviton"
+  | "graphite"
+  | "teal"
+  | "mint"
+  | "amber"
+  | "coral"
+  | "magenta"
+  | "violet"
+  | "auto";
+
+/** Gravity's own accent set — every hue is original (spec: 8 accents + Auto). */
+export const ACCENTS: Record<Exclude<AccentId, "auto">, { label: string; hex: string }> = {
+  graviton: { label: "Graviton Blue", hex: "#3a7bfd" },
+  graphite: { label: "Graphite", hex: "#8f9099" },
+  teal: { label: "Teal", hex: "#2fb8c6" },
+  mint: { label: "Mint", hex: "#31c48d" },
+  amber: { label: "Amber", hex: "#e0a52e" },
+  coral: { label: "Coral", hex: "#f4573f" },
+  magenta: { label: "Magenta", hex: "#e5478f" },
+  violet: { label: "Violet", hex: "#8a63f0" },
+};
+
+export interface DesktopPreferences {
+  doubleClickShowsDesktop: boolean;
+  accent: AccentId;
+  reduceTransparency: boolean;
+}
+
 export interface PersonalizationPreferences {
   dock: DockPreferences;
   wallpaper: WallpaperPreferences;
+  desktop: DesktopPreferences;
 }
 
 export const PERSONALIZATION_STORAGE_KEY = "gravity.personalization.v1";
@@ -69,6 +99,11 @@ export const DEFAULT_PERSONALIZATION: PersonalizationPreferences = {
     useCustom: false,
     revision: 0,
   },
+  desktop: {
+    doubleClickShowsDesktop: true,
+    accent: "graviton",
+    reduceTransparency: false,
+  },
 };
 
 const clamp = (value: unknown, min: number, max: number, fallback: number) => {
@@ -81,6 +116,7 @@ export function readPersonalization(): PersonalizationPreferences {
     const parsed = JSON.parse(localStorage.getItem(PERSONALIZATION_STORAGE_KEY) ?? "null") as Partial<PersonalizationPreferences> | null;
     const dock = (parsed?.dock ?? {}) as Partial<DockPreferences>;
     const wallpaper = (parsed?.wallpaper ?? {}) as Partial<WallpaperPreferences>;
+    const desktop = (parsed?.desktop ?? {}) as Partial<DesktopPreferences>;
     return {
       dock: {
         size: clamp(dock.size, 38, 72, DEFAULT_PERSONALIZATION.dock.size),
@@ -107,6 +143,13 @@ export function readPersonalization(): PersonalizationPreferences {
         customDarkName: typeof wallpaper.customDarkName === "string" ? wallpaper.customDarkName.slice(0, 160) : undefined,
         customLightName: typeof wallpaper.customLightName === "string" ? wallpaper.customLightName.slice(0, 160) : undefined,
         revision: clamp(wallpaper.revision, 0, Number.MAX_SAFE_INTEGER, 0),
+      },
+      desktop: {
+        doubleClickShowsDesktop: desktop.doubleClickShowsDesktop !== false,
+        accent: desktop.accent === "auto" || (typeof desktop.accent === "string" && desktop.accent in ACCENTS)
+          ? desktop.accent as AccentId
+          : DEFAULT_PERSONALIZATION.desktop.accent,
+        reduceTransparency: desktop.reduceTransparency === true,
       },
     };
   } catch {

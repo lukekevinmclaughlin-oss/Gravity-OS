@@ -4,7 +4,7 @@ import { mulberry32 } from "../lib/rng";
 import { WALLPAPERS, wallpaperSource } from "../lib/wallpapers";
 import { useShell } from "../shell/context";
 import type { AppearanceMode } from "../shell/types";
-import { WindowsIcon } from "../components/Icons";
+import { GravityMark, WindowsIcon } from "../components/Icons";
 import {
   distributeWindowsToWells,
   loadCustomWallpaper,
@@ -201,6 +201,22 @@ export function DeepField() {
   const wells = useDesktopWells();
   const [personalization, setPersonalization] = usePersonalization();
   const [menu, setMenu] = useState<DesktopMenuState | null>(null);
+  // Boot veil: shown on surface boot and whenever the shell re-enters Gravity,
+  // so strips never flash in half-styled (NS-2.4).
+  const [veil, setVeil] = useState(true);
+  const previousMode = useRef(state.shellMode);
+  useEffect(() => {
+    const before = previousMode.current;
+    previousMode.current = state.shellMode;
+    if (state.shellMode === "gravity" && (before === "entering-gravity" || before === "windows")) {
+      setVeil(true);
+    }
+  }, [state.shellMode]);
+  useEffect(() => {
+    if (!veil) return;
+    const timer = window.setTimeout(() => setVeil(false), 1000);
+    return () => window.clearTimeout(timer);
+  }, [veil]);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [customSource, setCustomSource] = useState<string | null>(null);
   const wallpaperInput = useRef<HTMLInputElement>(null);
@@ -322,6 +338,14 @@ export function DeepField() {
       tabIndex={0}
       onKeyDown={openKeyboardMenu}
       onContextMenu={openMenu}
+      onDoubleClick={(event) => {
+        // Double-clicking bare wallpaper toggles Show Desktop; interactive
+        // children (wells, menus, controls) keep their own double-click.
+        if (!personalization.desktop.doubleClickShowsDesktop) return;
+        const target = event.target as HTMLElement;
+        if (target.closest(".gravityWells, .desktopMenu, button, input, [role='menu'], [role='dialog']")) return;
+        void actions.toggleShowDesktop().catch((error) => setMenuError(String(error)));
+      }}
     >
       {renderedSource ? (
         <div className="deepField__image" style={wallpaperStyle} />
@@ -329,6 +353,11 @@ export function DeepField() {
         <LiveDeepField light={state.appearance.resolved === "light"} />
       )}
       <div className="deepField__wallpaperTone" style={wallpaperToneStyle} aria-hidden="true" />
+      {veil && (
+        <div className="deepField__veil" aria-hidden="true">
+          <span className="deepField__veilMark"><GravityMark size={40} /></span>
+        </div>
+      )}
       <input ref={wallpaperInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/bmp" onChange={(event) => void importWallpaper(event.target.files?.[0])} />
       {menu && (
         <>
