@@ -3,6 +3,7 @@ import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { ConstellationIcon, MoonIcon, SearchIcon, SunIcon, TrashIcon } from "../components/Icons";
 import { evaluate, formatNumber, looksLikeMath, rank } from "../lib/search";
+import { commandResults } from "../lib/actions";
 import { isAppRunning } from "../shell/types";
 import "./singularity.css";
 
@@ -202,6 +203,34 @@ export function Singularity({ open, onClose, onOpenConstellation, onToggleTheme 
       ? rank(query, allActions, (a) => a.title)
       : [];
     out.push(...actionResults.slice(0, 4));
+
+    // Command registry (NS-6.2): verb phrases with typed parameters —
+    // `accent coral`, `volume 40`, `snap left-half`, `scene <name>`.
+    // A run() that resolves to a string completes the query instead of closing.
+    for (const command of commandResults(query, {
+      state,
+      actions,
+      targetWindowId: targetWindowRef.current,
+      toggleTheme: onToggleTheme,
+      openConstellation: onOpenConstellation,
+    }).slice(0, 6)) {
+      out.push({
+        id: `cmd-${command.id}`,
+        kind: "action",
+        title: command.title,
+        sub: command.sub,
+        icon: <SearchIcon size={17} />,
+        run: async () => {
+          const next = await command.run();
+          if (typeof next === "string") {
+            setQuery(next);
+            requestAnimationFrame(() => inputRef.current?.focus());
+            return;
+          }
+          onClose();
+        },
+      });
+    }
 
     if (query) {
       const settings = rank(query, SETTINGS_LINKS, (s) => s.title);
