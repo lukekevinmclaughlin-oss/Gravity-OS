@@ -22,6 +22,12 @@ pub struct LaunchResult {
     pub accepted: bool,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDiagnostics {
+    pub live_thumbnail_count: usize,
+}
+
 pub struct AppState {
     pub platform: Box<dyn ShellPlatform>,
     pub settings: SettingsStore,
@@ -1190,6 +1196,18 @@ pub fn set_constellation_thumbnails(
     {
         let _ = placements;
         Ok(())
+    }
+}
+
+/// Resource counters for the About panel and automated leak-soak checks.
+/// This deliberately remains read-only so diagnostics cannot perturb a run.
+#[tauri::command]
+pub fn get_runtime_diagnostics() -> RuntimeDiagnostics {
+    RuntimeDiagnostics {
+        #[cfg(windows)]
+        live_thumbnail_count: crate::platform::thumbnails::active_count(),
+        #[cfg(not(windows))]
+        live_thumbnail_count: 0,
     }
 }
 

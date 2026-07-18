@@ -1,6 +1,6 @@
 # Gravity capability and parity matrix
 
-Audit baseline: 2026-07-18, `codex/gravity-os-frontier` (NS Wave 1 landed; see
+Audit baseline: 2026-07-18, `main` (NS Wave 1 landed; see
 `docs/GRAVITY-NEXT-STACK-WORKFLOW.md` for the program this tracks against).
 
 This document tracks the Windows-native Gravity OS implementation and the shell
@@ -47,7 +47,7 @@ Status vocabulary:
 | Well pointer interaction and management | Per-shape controls | **Complete** | Wells render in a region-shaped native desktop interaction layer: their bodies receive real mouse input without transparent areas stealing desktop clicks. Drag movement temporarily expands the interaction surface and defers region clipping so geometry cannot flicker behind the background. Wheel rotation, Ctrl-wheel scaling, multi-monitor transfer, right-click quick controls and a full settings panel are wired. |
 | App and window assignment | `handleDrop`, `WellController.capture` | **Complete** | Live windows drag directly into Wells. Active or inactive applications can be assigned from Orbit, Applications, Horizon, or Constellation; inactive apps launch and their first real window is captured. Every route rechecks native capacity. |
 | Well creation and customization | Shape creation/settings | **Complete** | Desktop, global Customization and per-Well right-click menus create new Wells. Name, eighteen geometries, eighteen presets, arbitrary custom color, scale, rotation, individual release, release-all, and release-to-Orbit persist. Native selects were replaced with opaque Gravity pickers. |
-| Shape selection and group operations | `select`, `deselectAll`, `equalizeAll` | **Partial** | Equalize-all and organization controls exist; shift selection, marquee selection, group move/scale and selection affordances remain. |
+| Shape selection and group operations | `select`, `deselectAll`, `equalizeAll` | **Complete** | Shift/Ctrl-click and marquee selection expose a polished selection ring and group toolbar. Selected Wells preserve spacing during frame-batched group moves, transfer displays together, snap only on release, and support group scaling, normalization and safe deletion. Ctrl+A, arrows, Shift+arrows, brackets, Escape and Delete provide equivalent keyboard control; pointer cancellation rolls transient motion back. |
 | Grid organization | well grid presets | **Complete** | Configurable row/column snapping persists and is available from the desktop controls. |
 | Live window preview on faces | `WellFace.thumbnail` | **Missing** | Current faces use app identity tiles. Windows DWM thumbnail hosting or a safe capture fallback is required. |
 | Solar organizer and screen saver | `SolarSystemController`, `SolarShowScene`, saver target | **Missing** | No Windows organizer/saver equivalent is present. It should reuse the same persisted well model rather than creating a second source of truth. |
@@ -69,18 +69,16 @@ Status vocabulary:
 | Singularity search and commands | **Partial** | Ranked application search, curated ms-settings links, an inline calculator, two-stage Escape, and a typed command registry — snap zones, accent, wallpaper, volume, brightness, orbit, scene restore, Show Desktop, media transport, lock/sleep — with bare-verb template completion, and user-defined Quick Keys (editor in Customization) that expand abbreviations into commands and outrank everything. Indexed file search, the in-panel Apps grid and a preview pane remain. |
 | Core controls | **Partial** | Volume, supported brightness, network/radio state, focus, power and shell controls have native paths. Now Playing reads the WinRT media session with working previous/play-pause/next transport, kept fresh through the event fabric. Artwork, an output-device picker, in-place module expansion and richer unsupported-device messaging remain. |
 | Pulse notifications | **Partial** | Windows notification access and dismiss paths exist; banners linger 6s, pause on hover, and dismiss on a pointer-tracked right swipe. Every mirrored note is recorded to a capped 7-day history (including Focus-silenced ones) shown grouped per app in the Horizon clock popover with Clear All. Permission onboarding, action buttons, and store-backed durability (NS-5) remain. |
-| Accessibility and keyboard operation | **Partial** | Labels, arrow/Home/End/type-ahead menu navigation, visible current shortcut hints, fourteen new shell/Well shortcuts, remapping, reduced-motion support and visible messages exist. A complete screen-reader and 100/125/150/200% DPI audit remains. |
-| Performance/recovery instrumentation | **Partial** | A WinEvent fabric (create/destroy/show/hide/title/minimize) pushes debounced state diffs, silenced during Windows handoff; frontend polling is reduced to 15s/60s reconciliation sweeps. `cargo fmt --check` and `clippy -D warnings` pass and run in CI with the frontend gates on every push. Formal idle CPU/memory budgets, supervisor watchdog and failure-injection tests remain. |
+| Accessibility and keyboard operation | **Partial** | Labels, arrow/Home/End/type-ahead menu navigation, visible current shortcut hints, fourteen shell/Well shortcuts, remapping, reduced-motion support, visible messages, and keyboard-equivalent Well multi-selection/group transforms exist. A complete screen-reader and 100/125/150/200% DPI audit remains. |
+| Performance/recovery instrumentation | **Partial** | A WinEvent fabric (create/destroy/show/hide/title/minimize) pushes debounced state diffs, silenced during Windows handoff; frontend polling is reduced to 15s/60s reconciliation sweeps. Well movement and face-release visuals coalesce raw pointer traffic to one React update per animation frame. About exposes the live native DWM thumbnail-handle counter for leak-soak inspection. `cargo fmt --check` and `clippy -D warnings` pass and run in CI with the frontend gates on every push. Formal idle CPU/memory budgets, supervisor watchdog and failure-injection tests remain. |
 
 ## Ordered implementation backlog
 
 1. Add DWM-backed live thumbnails for Constellation and shape faces, with
    explicit cleanup on source-window destruction and surface teardown.
-2. Add shift/marquee multi-selection and group movement/scaling for Desktop
-   Shapes, keeping keyboard and screen-reader selection equivalent.
-3. Port the Solar organizer as a second view over the existing well model,
+2. Port the Solar organizer as a second view over the existing well model,
    then add an opt-in Windows screen-saver package.
-4. Add parked-window restart/crash recovery tests and a visible recovery
+3. Add parked-window restart/crash recovery tests and a visible recovery
    command before broadening visual effects.
-5. Profile idle and animated rendering at mixed DPI, then tune frame budgets,
+4. Profile idle and animated rendering at mixed DPI, then tune frame budgets,
    WebView transparency and GPU resource lifetime.

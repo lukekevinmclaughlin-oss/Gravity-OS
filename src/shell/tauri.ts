@@ -185,6 +185,8 @@ export class TauriShell implements ShellProviderI {
     mediaControl: (kind) => this.mutate<void>("media_control", { kind }),
     setConstellationThumbnails: (placements) =>
       this.call<void>("set_constellation_thumbnails", { placements }),
+    getRuntimeDiagnostics: () =>
+      this.call<import("./types").RuntimeDiagnostics>("get_runtime_diagnostics"),
     powerAction: (kind) => this.call<void>("power_action", { kind }),
     editAction: (kind, targetWindowId) =>
       this.call<void>("edit_action", { kind, targetWindowId }),

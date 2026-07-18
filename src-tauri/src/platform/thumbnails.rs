@@ -102,10 +102,7 @@ pub fn on_window_destroyed(source: isize) {
     }
 }
 
-/// Live handle count — the leak-soak counter. Not yet surfaced in the shell;
-/// the About diagnostics panel consumes it when the soak test lands (NS-1.2
-/// acceptance), so it stays available rather than being rebuilt then.
-#[allow(dead_code)]
+/// Live handle count surfaced in About and consumed by leak-soak checks.
 pub fn active_count() -> usize {
     registry().lock().values().map(HashMap::len).sum()
 }

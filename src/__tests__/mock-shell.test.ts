@@ -82,8 +82,10 @@ describe("MockShell interaction contract", () => {
     ]);
     expect(shell.lastThumbnailPlacements).toHaveLength(1);
     expect(shell.lastThumbnailPlacements[0].windowId).toBe("w1");
+    await expect(shell.actions.getRuntimeDiagnostics()).resolves.toEqual({ liveThumbnailCount: 1 });
     await shell.actions.setConstellationThumbnails([]);
     expect(shell.lastThumbnailPlacements).toHaveLength(0);
+    await expect(shell.actions.getRuntimeDiagnostics()).resolves.toEqual({ liveThumbnailCount: 0 });
   });
 
   it("opens the Trash as the tile's primary action", async () => {

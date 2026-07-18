@@ -60,6 +60,11 @@ export interface ThumbnailPlacement {
   height: number;
 }
 
+/** Lightweight native counters used by About and leak-soak verification. */
+export interface RuntimeDiagnostics {
+  liveThumbnailCount: number;
+}
+
 export interface PulseNote {
   id: string;
   appName: string;
@@ -235,6 +240,8 @@ export interface ShellActions {
   /** Publish Constellation card rects (physical px) for live DWM previews;
    *  an empty list clears them. A browser backend renders identity cards. */
   setConstellationThumbnails(placements: ThumbnailPlacement[]): Promise<void>;
+  /** Read native resource counters without mutating the desktop session. */
+  getRuntimeDiagnostics(): Promise<RuntimeDiagnostics>;
   /** Real session actions; the development shell presents a visible simulation. */
   powerAction(kind: PowerKind): Promise<void>;
   /** Synthesize an edit chord into the currently focused foreign window. */

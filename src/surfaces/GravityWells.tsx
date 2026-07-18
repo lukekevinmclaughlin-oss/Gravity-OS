@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AppTile } from "../components/AppTile";
 import { useShell } from "../shell/context";
 import type { WindowInfo } from "../shell/types";
+import {
+  scaleWellGroup,
+  toggleWellSelection,
+  translateWellGroup,
+  wellsInMarquee,
+} from "../lib/well-selection";
 import {
   colorForWell,
   createDefaultWell as defaultWell,
@@ -34,6 +40,13 @@ interface WellReleaseVisual {
   x: number;
   y: number;
   phase: "armed" | "dragging" | "released" | "docked";
+}
+
+interface WellMarquee {
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
 }
 
 function loadGrid(): WellGrid | null {
@@ -69,24 +82,29 @@ export function GravityWells() {
   const [settingsWellId, setSettingsWellId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [hoverTarget, setHoverTarget] = useState<{ id: string; accepting: boolean } | null>(null);
-  const [draggingWellId, setDraggingWellId] = useState<string | null>(null);
+  const [draggingWellIds, setDraggingWellIds] = useState<ReadonlySet<string>>(new Set());
+  const [selectedWellIds, setSelectedWellIds] = useState<ReadonlySet<string>>(new Set());
+  const [marqueeMode, setMarqueeMode] = useState(false);
+  const [marquee, setMarquee] = useState<WellMarquee | null>(null);
   const [capturedWellId, setCapturedWellId] = useState<string | null>(null);
   const [releaseVisual, setReleaseVisual] = useState<WellReleaseVisual | null>(null);
   const previousOccupancy = useRef<Map<string, number> | null>(null);
   const suppressRelease = useRef(new Set<string>());
   const releaseActive = releaseVisual !== null;
+  const draggingActive = draggingWellIds.size > 0;
+  const selectionActive = selectedWellIds.size > 0 || marqueeMode || marquee !== null;
 
   useEffect(() => {
-    const timer = window.setTimeout(() => writeDesktopWells(wells), draggingWellId ? 140 : 0);
+    const timer = window.setTimeout(() => writeDesktopWells(wells), draggingActive ? 140 : 0);
     return () => window.clearTimeout(timer);
-  }, [wells, draggingWellId]);
+  }, [wells, draggingActive]);
 
   useEffect(() => {
-    void actions.setWellSurfaceExpanded(Boolean(menu || settingsWellId || draggingWellId || releaseActive)).catch((error) => setMessage(String(error)));
+    void actions.setWellSurfaceExpanded(Boolean(menu || settingsWellId || draggingActive || releaseActive || selectionActive)).catch((error) => setMessage(String(error)));
     return () => {
       void actions.setWellSurfaceExpanded(false).catch(() => undefined);
     };
-  }, [actions, menu, settingsWellId, draggingWellId, releaseActive]);
+  }, [actions, menu, settingsWellId, draggingActive, releaseActive, selectionActive]);
 
   useEffect(() => {
     if (grid) localStorage.setItem(GRID_STORAGE_KEY, JSON.stringify(grid));
@@ -179,6 +197,14 @@ export function GravityWells() {
   );
 
   useEffect(() => {
+    const available = new Set(wells.filter((well) => well.monitor === monitor).map((well) => well.id));
+    setSelectedWellIds((current) => {
+      const next = new Set([...current].filter((id) => available.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [monitor, wells]);
+
+  useEffect(() => {
     const next = new Map(wells.map((well) => [
       well.id,
       state.windows.filter((window) => window.parkedWellId === well.id).length,
@@ -211,17 +237,24 @@ export function GravityWells() {
     }
   };
 
-  const removeWell = async (well: WellDefinition) => {
+  const removeWells = async (ids: ReadonlySet<string>) => {
+    const targets = wells.filter((well) => ids.has(well.id));
+    if (!targets.length) return;
     try {
-      await Promise.all((parked.get(well.id) ?? []).map((window) => actions.releaseWindow(window.id)));
-      setWells((current) => current.filter((item) => item.id !== well.id));
+      await Promise.all(targets.flatMap((well) => parked.get(well.id) ?? []).map((window) => actions.releaseWindow(window.id)));
+      setWells((current) => current.filter((item) => !ids.has(item.id)));
+      setSelectedWellIds((current) => new Set([...current].filter((id) => !ids.has(id))));
       setMenu(null);
-      setSettingsWellId((current) => current === well.id ? null : current);
-      setMessage(`${well.name} removed. Its windows were safely released.`);
+      setSettingsWellId((current) => current && ids.has(current) ? null : current);
+      setMessage(targets.length === 1
+        ? `${targets[0].name} removed. Its windows were safely released.`
+        : `${targets.length} selected Gravity Wells removed. Their windows were safely released.`);
     } catch (error) {
       setMessage(String(error));
     }
   };
+
+  const removeWell = (well: WellDefinition) => removeWells(new Set([well.id]));
 
   const releaseEvery = async (well: WellDefinition, intoOrbit = false) => {
     const occupants = parked.get(well.id) ?? [];
@@ -250,43 +283,186 @@ export function GravityWells() {
   const beginMove = (event: ReactPointerEvent<HTMLButtonElement>, well: WellDefinition) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      setSelectedWellIds((current) => toggleWellSelection(current, well.id, true));
+      return;
+    }
+    const ids = selectedWellIds.has(well.id) ? new Set(selectedWellIds) : new Set([well.id]);
+    setSelectedWellIds(ids);
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDraggingWellId(well.id);
+    const base = wells;
+    const viewportWidth = Math.max(1, window.innerWidth);
+    const viewportHeight = Math.max(1, window.innerHeight);
+    const grabOffsetX = event.clientX / viewportWidth - well.x;
+    const grabOffsetY = event.clientY / viewportHeight - well.y;
+    const startX = event.clientX;
+    const startY = event.clientY;
     let lastX = event.clientX;
     let lastY = event.clientY;
+    let moved = false;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const targetX = lastX / viewportWidth - grabOffsetX;
+      const targetY = lastY / viewportHeight - grabOffsetY;
+      setWells(translateWellGroup(base, ids, well.id, targetX, targetY));
+    };
     const move = (next: PointerEvent) => {
       lastX = next.clientX;
       lastY = next.clientY;
-      updateWell(well.id, normalizedWellPosition(
-        next.clientX / Math.max(1, window.innerWidth),
-        next.clientY / Math.max(1, window.innerHeight),
-        grid,
-      ));
+      if (!moved && Math.hypot(lastX - startX, lastY - startY) > 5) {
+        moved = true;
+        setDraggingWellIds(ids);
+      }
+      if (moved && !frame) frame = requestAnimationFrame(paint);
     };
-    const finish = (next: PointerEvent) => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("pointercancel", cancel);
+      if (frame) cancelAnimationFrame(frame);
+    };
+    const finish = (next: PointerEvent) => {
+      cleanup();
+      if (!moved) {
+        setDraggingWellIds(new Set());
+        return;
+      }
       lastX = next.clientX;
       lastY = next.clientY;
       void actions.isDesktopTrashTarget(lastX, lastY).then(async (overTrash) => {
         if (overTrash) {
-          await removeWell(well);
+          await removeWells(ids);
           return;
         }
         const destination = await actions.desktopPointerLocation(lastX, lastY);
-        const position = normalizedWellPosition(destination.x, destination.y, grid);
-        updateWell(well.id, { ...position, monitor: destination.monitor });
+        const position = normalizedWellPosition(
+          destination.x - grabOffsetX,
+          destination.y - grabOffsetY,
+          grid,
+        );
+        setWells(translateWellGroup(base, ids, well.id, position.x, position.y, destination.monitor));
         if (destination.monitor !== well.monitor) {
-          setMessage(`${well.name} moved to Display ${destination.monitor + 1}.`);
+          setMessage(`${ids.size === 1 ? well.name : `${ids.size} selected Gravity Wells`} moved to Display ${destination.monitor + 1}.`);
         }
       }).catch((error) => setMessage(String(error))).finally(() => {
-        window.setTimeout(() => setDraggingWellId(null), 180);
+        window.setTimeout(() => setDraggingWellIds(new Set()), 180);
       });
+    };
+    const cancel = () => {
+      cleanup();
+      if (moved) setWells(base);
+      setDraggingWellIds(new Set());
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", finish, { once: true });
-    window.addEventListener("pointercancel", finish, { once: true });
+    window.addEventListener("pointercancel", cancel, { once: true });
+  };
+
+  const nudgeSelection = (dxPixels: number, dyPixels: number) => {
+    const anchorId = [...selectedWellIds][0];
+    if (!anchorId) return;
+    setWells((current) => {
+      const anchor = current.find((well) => well.id === anchorId);
+      if (!anchor) return current;
+      return translateWellGroup(
+        current,
+        selectedWellIds,
+        anchorId,
+        anchor.x + dxPixels / Math.max(1, window.innerWidth),
+        anchor.y + dyPixels / Math.max(1, window.innerHeight),
+      );
+    });
+  };
+
+  const resizeSelection = (delta: number) => {
+    if (!selectedWellIds.size) return;
+    setWells((current) => scaleWellGroup(current, selectedWellIds, delta));
+  };
+
+  const beginMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.target !== event.currentTarget) return;
+    if (!marqueeMode) {
+      setSelectedWellIds(new Set());
+      return;
+    }
+    event.preventDefault();
+    const start = new Set(selectedWellIds);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const additive = event.shiftKey;
+    let lastX = startX;
+    let lastY = startY;
+    let frame = 0;
+    setMarquee({ startX, startY, x: startX, y: startY });
+    const paint = () => {
+      frame = 0;
+      setMarquee((current) => current ? { ...current, x: lastX, y: lastY } : current);
+    };
+    const move = (next: PointerEvent) => {
+      lastX = next.clientX;
+      lastY = next.clientY;
+      if (!frame) frame = requestAnimationFrame(paint);
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      if (frame) cancelAnimationFrame(frame);
+    };
+    const finish = (next: PointerEvent) => {
+      cleanup();
+      const width = Math.max(1, window.innerWidth);
+      const height = Math.max(1, window.innerHeight);
+      const rect = {
+        left: Math.min(startX, next.clientX) / width,
+        top: Math.min(startY, next.clientY) / height,
+        right: Math.max(startX, next.clientX) / width,
+        bottom: Math.max(startY, next.clientY) / height,
+      };
+      const hit = wellsInMarquee(wells, monitor, rect, width, height);
+      const selected = additive ? new Set([...start, ...hit]) : hit;
+      setSelectedWellIds(selected);
+      setMarquee(null);
+      setMarqueeMode(false);
+      setMessage(`${selected.size} Gravity Well${selected.size === 1 ? "" : "s"} selected.`);
+    };
+    const cancel = () => {
+      cleanup();
+      setMarquee(null);
+      setMarqueeMode(false);
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", cancel, { once: true });
+  };
+
+  const handleSelectionKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).matches("input, textarea, select")) return;
+    const visibleIds = wells.filter((well) => well.monitor === monitor).map((well) => well.id);
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      setSelectedWellIds(new Set(visibleIds));
+      return;
+    }
+    if (event.key === "Escape") {
+      setSelectedWellIds(new Set());
+      setMarqueeMode(false);
+      setMarquee(null);
+      return;
+    }
+    if (!selectedWellIds.size) return;
+    const step = event.shiftKey ? 24 : 6;
+    if (event.key === "ArrowLeft") { event.preventDefault(); nudgeSelection(-step, 0); }
+    if (event.key === "ArrowRight") { event.preventDefault(); nudgeSelection(step, 0); }
+    if (event.key === "ArrowUp") { event.preventDefault(); nudgeSelection(0, -step); }
+    if (event.key === "ArrowDown") { event.preventDefault(); nudgeSelection(0, step); }
+    if (event.key === "[") { event.preventDefault(); resizeSelection(-.05); }
+    if (event.key === "]") { event.preventDefault(); resizeSelection(.05); }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      void removeWells(selectedWellIds);
+    }
   };
 
   const beginReleaseDrag = (
@@ -314,21 +490,32 @@ export function GravityWells() {
       phase: "armed",
     });
     let moved = false;
+    let frame = 0;
+    let lastX = startX;
+    let lastY = startY;
+    const paint = () => {
+      frame = 0;
+      setReleaseVisual((current) => current?.windowId === windowId
+        ? { ...current, x: lastX, y: lastY, phase: "dragging" }
+        : current);
+    };
     const move = (next: PointerEvent) => {
+      lastX = next.clientX;
+      lastY = next.clientY;
       if (!moved && Math.hypot(next.clientX - startX, next.clientY - startY) > 8) {
         moved = true;
         suppressRelease.current.add(windowId);
       }
-      if (moved) {
-        setReleaseVisual((current) => current?.windowId === windowId
-          ? { ...current, x: next.clientX, y: next.clientY, phase: "dragging" }
-          : current);
-      }
+      if (moved && !frame) frame = requestAnimationFrame(paint);
     };
-    const finish = (next: PointerEvent) => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("pointercancel", cancel);
+      if (frame) cancelAnimationFrame(frame);
+    };
+    const finish = (next: PointerEvent) => {
+      cleanup();
       if (!moved) {
         setReleaseVisual((current) => current?.windowId === windowId ? null : current);
         return;
@@ -364,15 +551,26 @@ export function GravityWells() {
         window.setTimeout(() => setReleaseVisual((current) => current?.windowId === windowId ? null : current), 520);
       });
     };
+    const cancel = () => {
+      cleanup();
+      suppressRelease.current.delete(windowId);
+      setReleaseVisual((current) => current?.windowId === windowId ? null : current);
+    };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", finish, { once: true });
-    window.addEventListener("pointercancel", finish, { once: true });
+    window.addEventListener("pointercancel", cancel, { once: true });
   };
 
   if (!visible) return null;
 
   return (
-    <div className="gravityWells" aria-label="Gravity desktop shapes">
+    <div
+      className={`gravityWells ${marqueeMode ? "is-marquee-mode" : ""} ${selectionActive ? "has-selection" : ""}`}
+      aria-label="Gravity desktop shapes"
+      tabIndex={selectionActive ? 0 : -1}
+      onPointerDown={beginMarquee}
+      onKeyDown={handleSelectionKey}
+    >
       {wells.filter((well) => well.monitor === monitor).map((well) => {
         const occupants = parked.get(well.id) ?? [];
         const capacity = CAPACITY[well.kind];
@@ -388,12 +586,13 @@ export function GravityWells() {
         return (
           <section
             key={well.id}
-            className={`gravityWell gravityWell--${well.kind} ${draggingWellId === well.id ? "is-dragging" : ""} ${capturedWellId === well.id ? "is-capture-complete" : ""} ${full ? "is-full" : ""} ${hoverTarget?.id === well.id ? hoverTarget.accepting ? "is-drop-target" : "is-drop-blocked" : ""}`}
+            className={`gravityWell gravityWell--${well.kind} ${draggingWellIds.has(well.id) ? "is-dragging" : ""} ${selectedWellIds.has(well.id) ? "is-selected" : ""} ${capturedWellId === well.id ? "is-capture-complete" : ""} ${full ? "is-full" : ""} ${hoverTarget?.id === well.id ? hoverTarget.accepting ? "is-drop-target" : "is-drop-blocked" : ""}`}
             style={style}
             aria-label={`${well.name}, ${occupants.length} of ${capacity} windows${full ? ", full" : ""}`}
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (!selectedWellIds.has(well.id)) setSelectedWellIds(new Set([well.id]));
               setMenu({
                 id: well.id,
                 x: Math.max(12, Math.min(event.clientX, window.innerWidth - 310)),
@@ -402,16 +601,21 @@ export function GravityWells() {
             }}
             onWheel={(event) => {
               event.preventDefault();
+              const ids = selectedWellIds.has(well.id) ? selectedWellIds : new Set([well.id]);
+              if (!selectedWellIds.has(well.id)) setSelectedWellIds(ids);
               if (event.ctrlKey || event.metaKey) {
-                updateWell(well.id, { scale: Math.max(.7, Math.min(1.5, well.scale - Math.sign(event.deltaY) * .05)) });
+                setWells((current) => scaleWellGroup(current, ids, -Math.sign(event.deltaY) * .05));
               } else {
-                updateWell(well.id, { rotation: (well.rotation ?? 0) + Math.sign(event.deltaY) * 18 });
+                setWells((current) => current.map((item) => ids.has(item.id)
+                  ? { ...item, rotation: (item.rotation ?? 0) + Math.sign(event.deltaY) * 18 }
+                  : item));
               }
             }}
           >
             <button
               className="gravityWell__body"
               aria-label={`Move ${well.name}`}
+              aria-pressed={selectedWellIds.has(well.id)}
               title="Drag to move · right-click for controls"
               onPointerDown={(event) => beginMove(event, well)}
               onDoubleClick={() => void storeActive(well)}
@@ -427,6 +631,7 @@ export function GravityWells() {
             <span className="gravityWell__count" title={full ? "This shape is full" : `${capacity - occupants.length} spaces available`}>
               {full ? "Full" : `${occupants.length}/${capacity}`}
             </span>
+            {selectedWellIds.has(well.id) && <span className="gravityWell__selectedMark" aria-hidden="true">✓</span>}
             <div className="gravityWell__faces">
               {occupants.map((window, index) => {
                 const app = state.apps.find((item) => item.id === window.appId);
@@ -453,6 +658,39 @@ export function GravityWells() {
           </section>
         );
       })}
+
+      {selectedWellIds.size > 0 && (
+        <div
+          className="wellSelectionBar glass-heavy"
+          role="toolbar"
+          aria-label={`${selectedWellIds.size} selected Gravity Wells`}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <span className="wellSelectionBar__count"><strong>{selectedWellIds.size}</strong><small>selected</small></span>
+          <span className="wellSelectionBar__sep" />
+          <button className={marqueeMode ? "is-active" : ""} onClick={() => setMarqueeMode((current) => !current)} title="Drag an area to replace the selection">Marquee</button>
+          <button onClick={() => setSelectedWellIds(new Set(wells.filter((well) => well.monitor === monitor).map((well) => well.id)))} title="Ctrl+A">Select all</button>
+          <button onClick={() => resizeSelection(-.05)} title="Smaller · [">−</button>
+          <button onClick={() => resizeSelection(.05)} title="Larger · ]">+</button>
+          <button onClick={() => setWells((current) => current.map((well) => selectedWellIds.has(well.id) ? { ...well, scale: 1 } : well))}>Normalize size</button>
+          <span className="wellSelectionBar__sep" />
+          <button onClick={() => { setSelectedWellIds(new Set()); setMarqueeMode(false); }}>Done</button>
+          <button className="is-danger" onClick={() => void removeWells(selectedWellIds)} title="Delete selected shapes and safely release their windows">Delete</button>
+        </div>
+      )}
+
+      {marquee && (
+        <span
+          className="wellMarquee"
+          aria-hidden="true"
+          style={{
+            left: Math.min(marquee.startX, marquee.x),
+            top: Math.min(marquee.startY, marquee.y),
+            width: Math.abs(marquee.x - marquee.startX),
+            height: Math.abs(marquee.y - marquee.startY),
+          }}
+        />
+      )}
 
       {releaseVisual && (() => {
         const dx = releaseVisual.x - releaseVisual.originX;
@@ -491,6 +729,22 @@ export function GravityWells() {
                 <span className="wellMenu__glyph" style={{ "--menu-well-color": colorForWell(well) } as CSSProperties}><i /></span>
                 <span><strong>{well.name}</strong><small>{parked.get(well.id)?.length ?? 0} of {CAPACITY[well.kind]} windows</small></span>
               </div>
+              <button role="menuitem" onClick={() => {
+                setSelectedWellIds((current) => toggleWellSelection(current, well.id, true));
+                setMenu(null);
+              }}><span>{selectedWellIds.has(well.id) ? "Remove from selection" : "Add to selection"}</span><small>Shift-click</small></button>
+              <button role="menuitem" onClick={() => {
+                setSelectedWellIds(new Set(wells.filter((item) => item.monitor === monitor).map((item) => item.id)));
+                setMenu(null);
+              }}><span>Select all Gravity Wells</span><small>Ctrl+A</small></button>
+              {selectedWellIds.size > 1 && (
+                <>
+                  <button role="menuitem" onClick={() => { resizeSelection(.05); setMenu(null); }}><span>Enlarge selected group</span><small>]</small></button>
+                  <button role="menuitem" onClick={() => { resizeSelection(-.05); setMenu(null); }}><span>Reduce selected group</span><small>[</small></button>
+                  <button role="menuitem" className="is-danger" onClick={() => void removeWells(selectedWellIds)}><span>Remove selected group</span><small>Delete</small></button>
+                </>
+              )}
+              <span className="wellMenu__sep" />
               <button role="menuitem" disabled={!activeWindow} onClick={() => void storeActive(well)}><span>Store active window</span><small>Double-click</small></button>
               <button role="menuitem" disabled={!(parked.get(well.id)?.length)} onClick={() => void releaseEvery(well)}><span>Release all to desktop</span><small>{parked.get(well.id)?.length ?? 0}</small></button>
               <button role="menuitem" disabled={!(parked.get(well.id)?.length)} onClick={() => void releaseEvery(well, true)}><span>Release all into Orbit</span></button>

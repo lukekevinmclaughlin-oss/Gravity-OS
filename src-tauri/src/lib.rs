@@ -633,6 +633,7 @@ pub fn run() {
             commands::media_control,
             commands::open_trash,
             commands::set_constellation_thumbnails,
+            commands::get_runtime_diagnostics,
             commands::register_desktop_wells,
             commands::set_well_surface_expanded,
             commands::set_pulse_interaction_region,

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GravityMark, WindowsIcon } from "../components/Icons";
 import { useShell } from "../shell/context";
+import type { RuntimeDiagnostics } from "../shell/types";
 import "./about-gravity.css";
 
 interface AboutGravityProps {
@@ -11,6 +12,17 @@ interface AboutGravityProps {
 export function AboutGravity({ open, onClose }: AboutGravityProps) {
   const { state, actions } = useShell();
   const [message, setMessage] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeDiagnostics | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let disposed = false;
+    void actions.getRuntimeDiagnostics()
+      .then((next) => { if (!disposed) setRuntime(next); })
+      .catch((error) => { if (!disposed) setMessage(`Diagnostics unavailable: ${String(error)}`); });
+    return () => { disposed = true; };
+  }, [actions, open]);
+
   if (!open) return null;
 
   const diagnostics = [
@@ -21,6 +33,7 @@ export function AboutGravity({ open, onClose }: AboutGravityProps) {
     `Applications indexed: ${state.apps.length}`,
     `Windows managed: ${state.windows.length}`,
     `Active Orbit: ${state.activeOrbit}`,
+    `Live DWM preview handles: ${runtime?.liveThumbnailCount ?? "unavailable"}`,
   ].join("\n");
 
   const copyDiagnostics = async () => {
@@ -43,6 +56,8 @@ export function AboutGravity({ open, onClose }: AboutGravityProps) {
           <div><dt>Appearance</dt><dd>{state.appearance.resolved}</dd></div>
           <div><dt>Managed windows</dt><dd>{state.windows.length}</dd></div>
           <div><dt>Applications</dt><dd>{state.apps.length}</dd></div>
+          <div><dt>Live previews</dt><dd>{runtime?.liveThumbnailCount ?? "Checking..."}</dd></div>
+          <div><dt>Resource state</dt><dd>{runtime ? "Measured" : "Loading"}</dd></div>
         </dl>
         <div className="aboutGravity__actions">
           <button onClick={() => void actions.openSetting("ms-settings:about").catch((error) => setMessage(String(error)))}>Windows system information</button>

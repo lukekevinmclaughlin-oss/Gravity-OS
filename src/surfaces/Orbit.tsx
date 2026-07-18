@@ -809,7 +809,7 @@ export function Orbit({ onOpenAppLibrary, onOpenCustomization }: OrbitProps = {}
           else tileRefs.current.delete("__trash");
         }}
         onClick={() => {
-          // macOS grammar: clicking the Trash opens it; emptying lives in the
+          // Desktop grammar: clicking the Trash opens it; emptying lives in the
           // context menu behind a confirm step.
           setTrashMenu(null);
           setTrashArmed(false);

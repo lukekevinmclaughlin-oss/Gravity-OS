@@ -449,6 +449,7 @@ export class MockShell implements ShellProviderI {
     setConstellationThumbnails: async (placements) => {
       this.lastThumbnailPlacements = placements;
     },
+    getRuntimeDiagnostics: async () => ({ liveThumbnailCount: this.lastThumbnailPlacements.length }),
     mediaControl: async (kind) => {
       const nowPlaying = this.state.status.nowPlaying;
       if (!nowPlaying) throw new Error("No application is playing media right now");

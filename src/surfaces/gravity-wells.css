@@ -1,4 +1,6 @@
 .gravityWells { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.gravityWells.is-marquee-mode { pointer-events: auto; cursor: crosshair; }
+.gravityWells.has-selection:focus { outline: none; }
 .gravityWell {
   position: absolute;
   width: calc(128px * var(--well-scale));
@@ -11,6 +13,23 @@
   contain: layout style;
 }
 .gravityWell:hover { filter: drop-shadow(0 24px 30px rgba(0,0,0,.5)); }
+.gravityWell.is-selected {
+  z-index: 7;
+  filter: drop-shadow(0 22px 30px rgba(0,0,0,.48)) drop-shadow(0 0 14px color-mix(in srgb,var(--well-color) 38%,transparent));
+}
+.gravityWell.is-selected::before {
+  content: "";
+  position: absolute;
+  inset: -8px -9px 10px;
+  z-index: -1;
+  border: 1px solid color-mix(in srgb, var(--well-color) 72%, white 28%);
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--well-color) 7%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--well-color) 9%, transparent), 0 0 28px color-mix(in srgb, var(--well-color) 18%, transparent), inset 0 1px rgba(255,255,255,.12);
+  pointer-events: none;
+  animation: well-selection-breathe 1.8s ease-in-out infinite alternate;
+}
+.gravityWell.is-selected .gravityWell__body { scale: 1.025; }
 .gravityWell.is-dragging { z-index: 12; filter: drop-shadow(0 28px 40px rgba(0,0,0,.58)) drop-shadow(0 0 15px color-mix(in srgb,var(--well-color) 35%,transparent)); }
 .gravityWell.is-dragging .gravityWell__body { scale: 1.035; }
 .gravityWell.is-drop-target { filter: drop-shadow(0 0 24px var(--well-color)) drop-shadow(0 28px 36px rgba(0,0,0,.55)); }
@@ -177,6 +196,23 @@
   text-shadow: none;
 }
 .gravityWell.is-full .gravityWell__count { border-color: var(--danger); color: var(--danger); }
+.gravityWell__selectedMark {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  z-index: 8;
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--well-color) 55%, white 45%);
+  border-radius: 50%;
+  color: #05110d;
+  background: color-mix(in srgb, var(--well-color) 75%, white 25%);
+  box-shadow: 0 4px 11px rgba(0,0,0,.34), 0 0 14px color-mix(in srgb, var(--well-color) 45%, transparent), inset 0 1px rgba(255,255,255,.48);
+  font: 800 10px var(--font-ui);
+  pointer-events: none;
+}
 .gravityWell__faces { position: absolute; inset: 0; pointer-events: none; }
 .gravityWell__face {
   --angle: calc(var(--face-index) * 52deg - 78deg);
@@ -189,6 +225,67 @@
 }
 .gravityWell__face:active { cursor: grabbing; }
 .gravityWell__face:hover { filter: brightness(1.25); transform: rotate(var(--angle)) translateY(calc(-62px * var(--well-scale))) rotate(calc(var(--angle) * -1)) scale(1.16); }
+.wellSelectionBar {
+  position: fixed;
+  left: 50%;
+  top: 47px;
+  z-index: 96;
+  max-width: calc(100vw - 34px);
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  translate: -50% 0;
+  overflow-x: auto;
+  pointer-events: auto;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 68%, white 32%);
+  border-radius: 14px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--deepfield) 89%, var(--glass-bg-heavy));
+  box-shadow: 0 18px 45px rgba(0,0,0,.42), inset 0 1px rgba(255,255,255,.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: blur(28px) saturate(1.25);
+  animation: well-selection-bar-in 220ms var(--ease-mass) both;
+}
+.wellSelectionBar__count {
+  min-width: 51px;
+  display: grid;
+  justify-items: center;
+  padding: 1px 7px;
+}
+.wellSelectionBar__count strong { color: var(--accent); font: 750 12px var(--font-ui); }
+.wellSelectionBar__count small { color: var(--ink-faint); font: 600 7px var(--font-ui); text-transform: uppercase; letter-spacing: .05em; }
+.wellSelectionBar__sep { width: 1px; height: 23px; flex: none; margin: 0 2px; background: var(--glass-border); }
+.wellSelectionBar button {
+  min-height: 30px;
+  flex: none;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--ink-dim);
+  font: 600 8.5px var(--font-ui);
+  transition: color 130ms ease, background 130ms ease, border-color 130ms ease, transform 130ms var(--ease-mass);
+}
+.wellSelectionBar button:hover,
+.wellSelectionBar button.is-active { color: var(--ink); border-color: var(--glass-border); background: var(--glass-bg-hover); }
+.wellSelectionBar button:active { transform: scale(.96); }
+.wellSelectionBar button.is-danger { color: var(--danger); }
+.wellSelectionBar button.is-danger:hover { color: white; border-color: transparent; background: var(--danger); }
+.wellMarquee {
+  position: fixed;
+  z-index: 95;
+  min-width: 2px;
+  min-height: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 74%, white 26%);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 62%),
+    color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+  will-change: left, top, width, height;
+}
 .wellReleaseFx { position: fixed; inset: 0; z-index: 110; overflow: hidden; pointer-events: none; color: var(--release-color); }
 .wellReleaseFx__field { position: absolute; inset: 0; overflow: visible; }
 .wellReleaseFx__tetherGlow,
@@ -398,6 +495,8 @@
 .gravityWells__message { position: fixed; left: 50%; bottom: 190px; z-index: 99; translate: -50% 0; padding: 8px 14px; border-radius: 99px; color: var(--ink); pointer-events: auto; }
 @keyframes well-spin { to { transform: rotateY(360deg) rotateX(8deg); } }
 @keyframes well-core { to { scale: 1.18; opacity: .74; } }
+@keyframes well-selection-breathe { to { opacity: .68; scale: 1.014; } }
+@keyframes well-selection-bar-in { from { opacity: 0; translate: -50% -8px; scale: .97; filter: blur(5px); } }
 @keyframes well-blocked { to { translate: 5px 0; } }
 @keyframes well-capture-vortex { to { rotate: 360deg; } }
 @keyframes well-lens-collapse {
@@ -459,6 +558,8 @@
   .gravityWell__lens i,
   .gravityWell__particles i,
   .wellReleaseFx *,
+  .gravityWell.is-selected::before,
+  .wellSelectionBar,
   .wellMenu,
   .wellSettings,
   .wellSettingsScrim { animation: none !important; }
