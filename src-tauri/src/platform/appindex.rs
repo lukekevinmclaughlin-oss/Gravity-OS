@@ -6,16 +6,15 @@ use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use windows::core::{BSTR, GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, PCWSTR};
-use windows::Win32::Foundation::{BOOL, CloseHandle, FALSE, HANDLE, HWND, LPARAM, MAX_PATH, TRUE};
+use windows::core::{IUnknown, IUnknown_Vtbl, Interface, BSTR, GUID, HRESULT, PCWSTR};
+use windows::Win32::Foundation::{CloseHandle, BOOL, FALSE, HANDLE, HWND, LPARAM, MAX_PATH, TRUE};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::UI::Shell::PropertiesSystem::{
+    IPropertyStore, SHGetPropertyStoreForWindow, PROPERTYKEY,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::Shell::PropertiesSystem::{
-    IPropertyStore, PROPERTYKEY, SHGetPropertyStoreForWindow,
-};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, GetWindowThreadProcessId, HICON, SW_SHOWNORMAL,
 };
@@ -64,7 +63,9 @@ const BUILTINS: &[(&str, &str, Option<&str>)] = &[
     (
         "Mail",
         "ms-mail:",
-        Some(r"shell:AppsFolder\Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows"),
+        Some(
+            r"shell:AppsFolder\Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows",
+        ),
     ),
     (
         "Photos",
@@ -79,7 +80,9 @@ const BUILTINS: &[(&str, &str, Option<&str>)] = &[
     (
         "Settings",
         "ms-settings:",
-        Some(r"shell:AppsFolder\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"),
+        Some(
+            r"shell:AppsFolder\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel",
+        ),
     ),
     (
         "Calculator",
@@ -131,7 +134,10 @@ fn scan_lnks(dir: &Path, out: &mut Vec<AppInfo>, depth: u32) {
         let path = entry.path();
         if path.is_dir() {
             scan_lnks(&path, out, depth + 1);
-        } else if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("lnk"))
+        } else if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("lnk"))
             == Some(true)
         {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -144,7 +150,11 @@ fn scan_lnks(dir: &Path, out: &mut Vec<AppInfo>, depth: u32) {
                 if out.iter().any(|a| a.id == id) {
                     continue;
                 }
-                out.push(AppInfo::new(stem, Some(path.to_string_lossy().into_owned()), false));
+                out.push(AppInfo::new(
+                    stem,
+                    Some(path.to_string_lossy().into_owned()),
+                    false,
+                ));
             }
         }
     }
@@ -241,7 +251,11 @@ pub fn launch_with_files(app_id: &str, paths: &[String]) -> Result<(), String> {
         if code > 32 {
             Ok(())
         } else {
-            Err(format!("Could not open the dropped files with {}: {}", app.name, shell_execute_error(code)))
+            Err(format!(
+                "Could not open the dropped files with {}: {}",
+                app.name,
+                shell_execute_error(code)
+            ))
         }
     }
 }
@@ -319,8 +333,8 @@ fn enumerate_packaged_apps_sta() -> Vec<(String, String)> {
         CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED,
     };
     use windows::Win32::UI::Shell::{
-        IEnumShellItems, IShellItem, BHID_EnumItems, FOLDERID_AppsFolder, KNOWN_FOLDER_FLAG,
-        SHGetKnownFolderItem, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_NORMALDISPLAY,
+        BHID_EnumItems, FOLDERID_AppsFolder, IEnumShellItems, IShellItem, SHGetKnownFolderItem,
+        KNOWN_FOLDER_FLAG, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_NORMALDISPLAY,
     };
 
     unsafe {
@@ -342,7 +356,9 @@ fn enumerate_packaged_apps_sta() -> Vec<(String, String)> {
                 if fetched == 0 {
                     break;
                 }
-                let Some(item) = items[0].take() else { continue };
+                let Some(item) = items[0].take() else {
+                    continue;
+                };
                 let name_ptr = item.GetDisplayName(SIGDN_NORMALDISPLAY)?;
                 let name = name_ptr.to_string().unwrap_or_default();
                 CoTaskMemFree(Some(name_ptr.0.cast()));
@@ -415,7 +431,10 @@ fn icon_rgba_sta(app_id: &str) -> Option<IconData> {
     };
     let raw = extract_icon(&source).or_else(|| extract_icon_imagelist(&source));
     #[cfg(test)]
-    eprintln!("  [sta] raw -> {:?}", raw.as_ref().map(|d| (d.width, d.height)));
+    eprintln!(
+        "  [sta] raw -> {:?}",
+        raw.as_ref().map(|d| (d.width, d.height))
+    );
     raw.map(crop_to_content)
 }
 
@@ -503,8 +522,7 @@ fn search_path(exe: &str) -> Option<String> {
             None,
         )
     };
-    (len > 0 && (len as usize) < buf.len())
-        .then(|| String::from_utf16_lossy(&buf[..len as usize]))
+    (len > 0 && (len as usize) < buf.len()).then(|| String::from_utf16_lossy(&buf[..len as usize]))
 }
 
 fn extract_icon(path: &str) -> Option<IconData> {
@@ -515,8 +533,7 @@ fn extract_icon(path: &str) -> Option<IconData> {
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Shell::{
-        IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK,
-        SIIGBF_ICONONLY,
+        IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
     };
 
     unsafe {
@@ -525,7 +542,10 @@ fn extract_icon(path: &str) -> Option<IconData> {
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(PCWSTR(wpath.as_ptr()), None).ok()?;
         let hbmp = factory
-            .GetImage(SIZE { cx: 128, cy: 128 }, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK)
+            .GetImage(
+                SIZE { cx: 128, cy: 128 },
+                SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
+            )
             .ok()?;
 
         let mut bm = BITMAP::default();
@@ -629,8 +649,8 @@ fn catalog_id_for_aumid(aumid: &str) -> Option<String> {
             .exe
             .as_deref()
             .is_some_and(|target| target.to_lowercase().contains(&aumid));
-        let hint_match = builtin_icon_hint(&app.id)
-            .is_some_and(|target| target.to_lowercase().contains(&aumid));
+        let hint_match =
+            builtin_icon_hint(&app.id).is_some_and(|target| target.to_lowercase().contains(&aumid));
         (launch_match || hint_match).then(|| app.id.clone())
     })
 }
@@ -790,15 +810,24 @@ mod tests {
 
     #[test]
     fn quotes_file_activation_arguments_for_windows() {
-        assert_eq!(quote_windows_argument(r"C:\Gravity Files\note.txt"), r#""C:\Gravity Files\note.txt""#);
-        assert_eq!(quote_windows_argument(r#"C:\Work\say "hi".txt"#), r#""C:\Work\say \"hi\".txt""#);
+        assert_eq!(
+            quote_windows_argument(r"C:\Gravity Files\note.txt"),
+            r#""C:\Gravity Files\note.txt""#
+        );
+        assert_eq!(
+            quote_windows_argument(r#"C:\Work\say "hi".txt"#),
+            r#""C:\Work\say \"hi\".txt""#
+        );
     }
 
     #[test]
     #[ignore = "requires Google Chrome at the default Start Menu path"]
     fn probe_lnk_icon_pipeline() {
         let lnk = r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk";
-        assert!(Path::new(lnk).exists(), "chrome lnk missing on this machine");
+        assert!(
+            Path::new(lnk).exists(),
+            "chrome lnk missing on this machine"
+        );
         let src = resolve_icon_source(lnk);
         eprintln!("resolve_icon_source -> {src:?}");
         let src = src.expect("source should resolve");

@@ -32,6 +32,7 @@ impl AppState {
         let (gap, cycling) = settings.window_preferences();
         platform.configure_windowing(gap, cycling);
         platform.configure_rules(&settings.rules());
+        platform.configure_ignored(&settings.ignored_app_ids());
         Self {
             platform,
             settings,
@@ -50,6 +51,12 @@ pub fn get_shell_state(state: State<AppState>) -> ShellState {
 
 fn state_changed(app: &tauri::AppHandle) {
     let _ = app.emit("gravity://state-changed", ());
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub fn register_desktop_wells(targets: Vec<crate::platform::snap::WellTarget>) {
+    crate::platform::snap::set_well_targets(targets);
 }
 
 #[cfg(windows)]
@@ -112,14 +119,22 @@ pub fn reorder_pinned_apps(
 }
 
 #[tauri::command]
-pub fn set_appearance(app: tauri::AppHandle, state: State<AppState>, mode: AppearanceMode) -> Result<(), String> {
+pub fn set_appearance(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    mode: AppearanceMode,
+) -> Result<(), String> {
     state.settings.set_appearance(mode)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn set_wallpaper(app: tauri::AppHandle, state: State<AppState>, wallpaper_id: String) -> Result<(), String> {
+pub fn set_wallpaper(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    wallpaper_id: String,
+) -> Result<(), String> {
     state.settings.set_wallpaper(wallpaper_id)?;
     state_changed(&app);
     Ok(())
@@ -139,7 +154,11 @@ pub fn set_window_preferences(
 }
 
 #[tauri::command]
-pub fn capture_scene(app: tauri::AppHandle, state: State<AppState>, name: String) -> Result<WindowScene, String> {
+pub fn capture_scene(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    name: String,
+) -> Result<WindowScene, String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 64 {
         return Err("Scene names must contain 1 to 64 characters".into());
@@ -151,7 +170,11 @@ pub fn capture_scene(app: tauri::AppHandle, state: State<AppState>, name: String
 }
 
 #[tauri::command]
-pub fn restore_scene(app: tauri::AppHandle, state: State<AppState>, scene_id: String) -> Result<(), String> {
+pub fn restore_scene(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    scene_id: String,
+) -> Result<(), String> {
     let scene = state
         .settings
         .scene(&scene_id)
@@ -162,8 +185,82 @@ pub fn restore_scene(app: tauri::AppHandle, state: State<AppState>, scene_id: St
 }
 
 #[tauri::command]
-pub fn delete_scene(app: tauri::AppHandle, state: State<AppState>, scene_id: String) -> Result<(), String> {
+pub fn delete_scene(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    scene_id: String,
+) -> Result<(), String> {
     state.settings.delete_scene(&scene_id)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_scene_auto_restore(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    scene_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state.settings.set_scene_auto_restore(&scene_id, enabled)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_app_ignored(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    app_id: String,
+    ignored: bool,
+) -> Result<(), String> {
+    if !state
+        .platform
+        .snapshot()
+        .apps
+        .iter()
+        .any(|item| item.id == app_id)
+    {
+        return Err("That application is no longer installed".into());
+    }
+    state.settings.set_app_ignored(&app_id, ignored)?;
+    state
+        .platform
+        .configure_ignored(&state.settings.ignored_app_ids());
+    state_changed(&app);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn apply_launch_at_login(enabled: bool) -> Result<(), String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) = hkcu
+        .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+        .map_err(|error| error.to_string())?;
+    if enabled {
+        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        key.set_value("Gravity OS", &format!("\"{}\"", executable.display()))
+            .map_err(|error| error.to_string())
+    } else {
+        match key.delete_value("Gravity OS") {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn set_launch_at_login(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    apply_launch_at_login(enabled)?;
+    state.settings.set_launch_at_login(enabled)?;
     state_changed(&app);
     Ok(())
 }
@@ -197,7 +294,11 @@ pub fn upsert_window_rule(
 }
 
 #[tauri::command]
-pub fn delete_window_rule(app: tauri::AppHandle, state: State<AppState>, rule_id: String) -> Result<(), String> {
+pub fn delete_window_rule(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    rule_id: String,
+) -> Result<(), String> {
     state.settings.delete_rule(&rule_id)?;
     state.platform.configure_rules(&state.settings.rules());
     state_changed(&app);
@@ -205,35 +306,55 @@ pub fn delete_window_rule(app: tauri::AppHandle, state: State<AppState>, rule_id
 }
 
 #[tauri::command]
-pub fn focus_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn focus_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     state.platform.focus_window(&id)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn minimize_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn minimize_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     state.platform.minimize_window(&id)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_maximize_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn toggle_maximize_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     state.platform.toggle_maximize_window(&id)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn close_window(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn close_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     state.platform.close_window(&id)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn window_action(app: tauri::AppHandle, state: State<AppState>, action: String) -> Result<(), String> {
+pub fn window_action(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    action: String,
+) -> Result<(), String> {
     state.platform.window_action(&action)?;
     state_changed(&app);
     Ok(())
@@ -252,7 +373,73 @@ pub fn window_action_for(
 }
 
 #[tauri::command]
-pub fn launch_app(app: tauri::AppHandle, state: State<AppState>, app_id: String) -> Result<LaunchResult, String> {
+pub fn apply_grid_region(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    window_id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    state
+        .platform
+        .apply_grid_region(&window_id, x, y, width, height)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn warp_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    window_id: String,
+    operation: String,
+) -> Result<(), String> {
+    state.platform.warp_window(&window_id, &operation)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn park_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    window_id: String,
+    well_id: String,
+) -> Result<(), String> {
+    state.platform.park_window(&window_id, &well_id)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn release_window(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    window_id: String,
+) -> Result<(), String> {
+    state.platform.release_window(&window_id)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn release_all_parked_windows(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    state.platform.release_all_parked_windows()?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn launch_app(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    app_id: String,
+) -> Result<LaunchResult, String> {
     state.platform.launch_app(&app_id)?;
     state_changed(&app);
     Ok(LaunchResult {
@@ -284,28 +471,44 @@ pub fn set_volume(app: tauri::AppHandle, state: State<AppState>, value: f32) -> 
 }
 
 #[tauri::command]
-pub fn set_brightness(app: tauri::AppHandle, state: State<AppState>, value: f32) -> Result<(), String> {
+pub fn set_brightness(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    value: f32,
+) -> Result<(), String> {
     state.platform.set_brightness(value)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_setting(app: tauri::AppHandle, state: State<AppState>, key: String) -> Result<(), String> {
+pub fn toggle_setting(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    key: String,
+) -> Result<(), String> {
     state.platform.toggle_setting(&key)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn dismiss_notification(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn dismiss_notification(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     state.platform.dismiss_notification(&id)?;
     state_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn switch_orbit(app: tauri::AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn switch_orbit(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     state.platform.switch_orbit(&id)?;
     state_changed(&app);
     Ok(())

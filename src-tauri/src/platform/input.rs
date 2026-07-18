@@ -7,7 +7,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_A, VK_C, VK_CONTROL, VK_V, VK_X, VK_Y, VK_Z,
 };
-use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE,
+};
 
 fn key(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
     INPUT {
@@ -44,7 +46,10 @@ pub fn edit_chord(kind: &str) -> Result<(), String> {
     ];
     let sent = unsafe { SendInput(&seq, std::mem::size_of::<INPUT>() as i32) };
     if sent != seq.len() as u32 {
-        return Err(format!("Windows accepted only {sent} of {} input events", seq.len()));
+        return Err(format!(
+            "Windows accepted only {sent} of {} input events",
+            seq.len()
+        ));
     }
     Ok(())
 }
@@ -63,7 +68,9 @@ pub fn edit_chord_for(window_id: &str, kind: &str) -> Result<(), String> {
     unsafe {
         let _ = ShowWindow(hwnd, SW_RESTORE);
         if !SetForegroundWindow(hwnd).as_bool() {
-            return Err("Windows did not allow Gravity to reactivate the target application".into());
+            return Err(
+                "Windows did not allow Gravity to reactivate the target application".into(),
+            );
         }
     }
     std::thread::sleep(std::time::Duration::from_millis(35));

@@ -51,7 +51,9 @@ unsafe fn query(handle: HANDLE) -> Option<String> {
             let attributes = &*(data as *const WLAN_CONNECTION_ATTRIBUTES);
             let ssid = &attributes.wlanAssociationAttributes.dot11Ssid;
             let length = (ssid.uSSIDLength as usize).min(ssid.ucSSID.len());
-            let name = String::from_utf8_lossy(&ssid.ucSSID[..length]).trim().to_string();
+            let name = String::from_utf8_lossy(&ssid.ucSSID[..length])
+                .trim()
+                .to_string();
             WlanFreeMemory(data);
             if !name.is_empty() {
                 result = Some(name);

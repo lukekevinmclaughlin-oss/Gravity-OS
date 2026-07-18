@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::shell::{
-    AppearanceMode, AppearanceState, AppInfo, ResolvedAppearance, ShellState, WindowScene,
-    WindowingState, WindowRule,
+    AppInfo, AppearanceMode, AppearanceState, ResolvedAppearance, ShellState, WindowRule,
+    WindowScene, WindowingState,
 };
 
 fn default_wallpaper() -> String {
@@ -24,6 +24,9 @@ struct UserSettings {
     cycling: bool,
     scenes: Vec<WindowScene>,
     rules: Vec<WindowRule>,
+    ignored_app_ids: Vec<String>,
+    launch_at_login: bool,
+    scene_auto_restore: bool,
 }
 
 impl Default for UserSettings {
@@ -36,6 +39,9 @@ impl Default for UserSettings {
             cycling: true,
             scenes: Vec::new(),
             rules: Vec::new(),
+            ignored_app_ids: Vec::new(),
+            launch_at_login: false,
+            scene_auto_restore: true,
         }
     }
 }
@@ -67,6 +73,9 @@ impl SettingsStore {
             cycling: settings.cycling,
             scenes: settings.scenes,
             rules: settings.rules,
+            ignored_app_ids: settings.ignored_app_ids,
+            launch_at_login: settings.launch_at_login,
+            scene_auto_restore: settings.scene_auto_restore,
         };
     }
 
@@ -130,6 +139,27 @@ impl SettingsStore {
         self.inner.lock().rules.clone()
     }
 
+    pub fn ignored_app_ids(&self) -> Vec<String> {
+        self.inner.lock().ignored_app_ids.clone()
+    }
+
+    pub fn set_app_ignored(&self, app_id: &str, ignored: bool) -> Result<(), String> {
+        let mut settings = self.inner.lock();
+        settings.ignored_app_ids.retain(|id| id != app_id);
+        if ignored {
+            settings.ignored_app_ids.push(app_id.to_string());
+            settings.ignored_app_ids.sort();
+            settings.ignored_app_ids.dedup();
+        }
+        self.save_locked(&settings)
+    }
+
+    pub fn set_launch_at_login(&self, enabled: bool) -> Result<(), String> {
+        let mut settings = self.inner.lock();
+        settings.launch_at_login = enabled;
+        self.save_locked(&settings)
+    }
+
     pub fn upsert_rule(&self, rule: WindowRule) -> Result<(), String> {
         let mut settings = self.inner.lock();
         settings.rules.retain(|existing| existing.id != rule.id);
@@ -173,6 +203,30 @@ impl SettingsStore {
             .cloned()
     }
 
+    pub fn set_scene_auto_restore(&self, id: &str, enabled: bool) -> Result<(), String> {
+        let mut settings = self.inner.lock();
+        let scene = settings
+            .scenes
+            .iter_mut()
+            .find(|scene| scene.id == id)
+            .ok_or_else(|| "That Scene no longer exists".to_string())?;
+        scene.auto_restore = enabled;
+        self.save_locked(&settings)
+    }
+
+    pub fn auto_restore_scene(&self, fingerprint: &str) -> Option<WindowScene> {
+        let settings = self.inner.lock();
+        if !settings.scene_auto_restore {
+            return None;
+        }
+        settings
+            .scenes
+            .iter()
+            .rev()
+            .find(|scene| scene.auto_restore && scene.display_fingerprint == fingerprint)
+            .cloned()
+    }
+
     pub fn delete_scene(&self, id: &str) -> Result<(), String> {
         let mut settings = self.inner.lock();
         let before = settings.scenes.len();
@@ -206,7 +260,7 @@ fn effective_pins(settings: &UserSettings, catalog: &[AppInfo]) -> Vec<String> {
         .collect()
 }
 
-fn apply_pins(settings: &UserSettings, apps: &mut Vec<AppInfo>) {
+fn apply_pins(settings: &UserSettings, apps: &mut [AppInfo]) {
     let pins = effective_pins(settings, apps);
     for app in apps.iter_mut() {
         app.pinned = pins.contains(&app.id);

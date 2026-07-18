@@ -10,7 +10,12 @@ pub struct Rect {
 
 impl Rect {
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn center(self) -> (f64, f64) {
@@ -44,7 +49,12 @@ pub struct UnitRect {
 
 impl UnitRect {
     pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn resolve(self, visible: Rect, gap: f64) -> Rect {
@@ -59,9 +69,17 @@ impl UnitRect {
         }
         let eps = 0.0001;
         let left = if self.x <= eps { gap } else { gap / 2.0 };
-        let right = if self.x + self.width >= 1.0 - eps { gap } else { gap / 2.0 };
+        let right = if self.x + self.width >= 1.0 - eps {
+            gap
+        } else {
+            gap / 2.0
+        };
         let top = if self.y <= eps { gap } else { gap / 2.0 };
-        let bottom = if self.y + self.height >= 1.0 - eps { gap } else { gap / 2.0 };
+        let bottom = if self.y + self.height >= 1.0 - eps {
+            gap
+        } else {
+            gap / 2.0
+        };
         Rect::new(
             raw.x + left,
             raw.y + top,
@@ -140,7 +158,10 @@ impl Placement {
     }
 
     pub fn is_cycle_half(self) -> bool {
-        matches!(self, Self::LeftHalf | Self::RightHalf | Self::TopHalf | Self::BottomHalf)
+        matches!(
+            self,
+            Self::LeftHalf | Self::RightHalf | Self::TopHalf | Self::BottomHalf
+        )
     }
 
     fn unit_rect(self, portrait: bool) -> Option<UnitRect> {
@@ -155,14 +176,28 @@ impl Placement {
             Self::BottomLeft => UnitRect::new(0.0, 0.5, 0.5, 0.5),
             Self::BottomRight => UnitRect::new(0.5, 0.5, 0.5, 0.5),
             Self::FirstThird | Self::CenterThird | Self::LastThird => {
-                let index = match self { Self::FirstThird => 0.0, Self::CenterThird => 1.0, _ => 2.0 };
-                if portrait { UnitRect::new(0.0, index * third, 1.0, third) }
-                else { UnitRect::new(index * third, 0.0, third, 1.0) }
+                let index = match self {
+                    Self::FirstThird => 0.0,
+                    Self::CenterThird => 1.0,
+                    _ => 2.0,
+                };
+                if portrait {
+                    UnitRect::new(0.0, index * third, 1.0, third)
+                } else {
+                    UnitRect::new(index * third, 0.0, third, 1.0)
+                }
             }
             Self::FirstTwoThirds | Self::LastTwoThirds => {
-                let origin = if self == Self::FirstTwoThirds { 0.0 } else { third };
-                if portrait { UnitRect::new(0.0, origin, 1.0, 2.0 * third) }
-                else { UnitRect::new(origin, 0.0, 2.0 * third, 1.0) }
+                let origin = if self == Self::FirstTwoThirds {
+                    0.0
+                } else {
+                    third
+                };
+                if portrait {
+                    UnitRect::new(0.0, origin, 1.0, 2.0 * third)
+                } else {
+                    UnitRect::new(origin, 0.0, 2.0 * third, 1.0)
+                }
             }
             Self::SixthTopLeft => sixth(0, portrait),
             Self::SixthTopCenter => sixth(1, portrait),
@@ -178,9 +213,19 @@ impl Placement {
 
 fn sixth(index: usize, portrait: bool) -> UnitRect {
     if portrait {
-        UnitRect::new((index % 2) as f64 * 0.5, (index / 2) as f64 / 3.0, 0.5, 1.0 / 3.0)
+        UnitRect::new(
+            (index % 2) as f64 * 0.5,
+            (index / 2) as f64 / 3.0,
+            0.5,
+            1.0 / 3.0,
+        )
     } else {
-        UnitRect::new((index % 3) as f64 / 3.0, (index / 3) as f64 * 0.5, 1.0 / 3.0, 0.5)
+        UnitRect::new(
+            (index % 3) as f64 / 3.0,
+            (index / 3) as f64 * 0.5,
+            1.0 / 3.0,
+            0.5,
+        )
     }
 }
 
@@ -189,11 +234,18 @@ pub fn target(placement: Placement, current: Rect, visible: Rect, gap: f64, cycl
         return centered(current.width, current.height, visible);
     }
     if placement == Placement::AlmostMaximize {
-        return centered((visible.width * 0.92).round(), (visible.height * 0.92).round(), visible);
+        return centered(
+            (visible.width * 0.92).round(),
+            (visible.height * 0.92).round(),
+            visible,
+        );
     }
     if cycling && placement.is_cycle_half() {
         let stages = cycle_stages(placement, visible, gap);
-        if let Some(index) = stages.iter().position(|stage| stage.approximately(current, 4.0)) {
+        if let Some(index) = stages
+            .iter()
+            .position(|stage| stage.approximately(current, 4.0))
+        {
             return stages[(index + 1) % stages.len()];
         }
         return stages[0];
@@ -234,23 +286,34 @@ pub fn centered(width: f64, height: f64, visible: Rect) -> Rect {
 }
 
 pub fn grid_frames(count: usize, visible: Rect, gap: f64) -> Vec<Rect> {
-    if count == 0 { return Vec::new(); }
-    if count == 1 { return vec![UnitRect::new(0.0, 0.0, 1.0, 1.0).resolve(visible, gap)]; }
+    if count == 0 {
+        return Vec::new();
+    }
+    if count == 1 {
+        return vec![UnitRect::new(0.0, 0.0, 1.0, 1.0).resolve(visible, gap)];
+    }
     let aspect = visible.width / visible.height.max(1.0);
-    let mut columns = ((count as f64 * aspect).sqrt().round() as usize).max(1).min(count);
-    if columns == 0 { columns = 1; }
+    let mut columns = ((count as f64 * aspect).sqrt().round() as usize)
+        .max(1)
+        .min(count);
+    if columns == 0 {
+        columns = 1;
+    }
     let rows = count.div_ceil(columns);
     let mut result = Vec::with_capacity(count);
     let mut placed = 0;
     for row in 0..rows {
         let in_row = columns.min(count - placed);
         for column in 0..in_row {
-            result.push(UnitRect::new(
-                column as f64 / in_row as f64,
-                row as f64 / rows as f64,
-                1.0 / in_row as f64,
-                1.0 / rows as f64,
-            ).resolve(visible, gap));
+            result.push(
+                UnitRect::new(
+                    column as f64 / in_row as f64,
+                    row as f64 / rows as f64,
+                    1.0 / in_row as f64,
+                    1.0 / rows as f64,
+                )
+                .resolve(visible, gap),
+            );
         }
         placed += in_row;
     }
@@ -265,21 +328,25 @@ pub fn scaled(frame: Rect, factor: f64, visible: Rect) -> Rect {
         (frame.center().1 - height / 2.0).clamp(visible.y, visible.y + visible.height - height),
         width,
         height,
-    ).rounded()
+    )
+    .rounded()
 }
 
 pub fn cascade_frames(count: usize, visible: Rect) -> Vec<Rect> {
     let width = (visible.width * 0.6).round();
     let height = (visible.height * 0.6).round();
-    (0..count).map(|index| {
-        let offset = index as f64 * 36.0;
-        Rect::new(
-            (visible.x + 24.0 + offset).min(visible.x + visible.width - width - 8.0),
-            (visible.y + 24.0 + offset).min(visible.y + visible.height - height - 8.0),
-            width,
-            height,
-        ).rounded()
-    }).collect()
+    (0..count)
+        .map(|index| {
+            let offset = index as f64 * 36.0;
+            Rect::new(
+                (visible.x + 24.0 + offset).min(visible.x + visible.width - width - 8.0),
+                (visible.y + 24.0 + offset).min(visible.y + visible.height - height - 8.0),
+                width,
+                height,
+            )
+            .rounded()
+        })
+        .collect()
 }
 
 pub fn transpose(frame: Rect, source: Rect, destination: Rect) -> Rect {
@@ -287,33 +354,54 @@ pub fn transpose(frame: Rect, source: Rect, destination: Rect) -> Rect {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FocusDirection { Left, Right, Up, Down }
+pub enum FocusDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
 
 pub fn nearest(origin: Rect, candidates: &[Rect], direction: FocusDirection) -> Option<usize> {
     let from = origin.center();
-    candidates.iter().enumerate().filter_map(|(index, rect)| {
-        let center = rect.center();
-        let (primary, orthogonal) = match direction {
-            FocusDirection::Left => (from.0 - center.0, (center.1 - from.1).abs()),
-            FocusDirection::Right => (center.0 - from.0, (center.1 - from.1).abs()),
-            FocusDirection::Up => (from.1 - center.1, (center.0 - from.0).abs()),
-            FocusDirection::Down => (center.1 - from.1, (center.0 - from.0).abs()),
-        };
-        (primary > 1.0).then_some((index, primary + orthogonal * 1.5))
-    }).min_by(|a, b| a.1.total_cmp(&b.1)).map(|value| value.0)
+    candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rect)| {
+            let center = rect.center();
+            let (primary, orthogonal) = match direction {
+                FocusDirection::Left => (from.0 - center.0, (center.1 - from.1).abs()),
+                FocusDirection::Right => (center.0 - from.0, (center.1 - from.1).abs()),
+                FocusDirection::Up => (from.1 - center.1, (center.0 - from.0).abs()),
+                FocusDirection::Down => (center.1 - from.1, (center.0 - from.0).abs()),
+            };
+            (primary > 1.0).then_some((index, primary + orthogonal * 1.5))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|value| value.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const SCREEN: Rect = Rect { x: 0.0, y: 30.0, width: 1200.0, height: 770.0 };
+    const SCREEN: Rect = Rect {
+        x: 0.0,
+        y: 30.0,
+        width: 1200.0,
+        height: 770.0,
+    };
 
     #[test]
     fn halves_and_quarters_match_gravity() {
         let current = Rect::new(20.0, 50.0, 600.0, 500.0);
-        assert_eq!(target(Placement::LeftHalf, current, SCREEN, 0.0, false), Rect::new(0.0, 30.0, 600.0, 770.0));
-        assert_eq!(target(Placement::BottomRight, current, SCREEN, 0.0, false), Rect::new(600.0, 415.0, 600.0, 385.0));
+        assert_eq!(
+            target(Placement::LeftHalf, current, SCREEN, 0.0, false),
+            Rect::new(0.0, 30.0, 600.0, 770.0)
+        );
+        assert_eq!(
+            target(Placement::BottomRight, current, SCREEN, 0.0, false),
+            Rect::new(600.0, 415.0, 600.0, 385.0)
+        );
     }
 
     #[test]
@@ -344,7 +432,10 @@ mod tests {
     #[test]
     fn directional_focus_penalizes_sideways_offset() {
         let origin = Rect::new(500.0, 400.0, 100.0, 100.0);
-        let candidates = [Rect::new(700.0, 410.0, 100.0, 100.0), Rect::new(600.0, 50.0, 100.0, 100.0)];
+        let candidates = [
+            Rect::new(700.0, 410.0, 100.0, 100.0),
+            Rect::new(600.0, 50.0, 100.0, 100.0),
+        ];
         assert_eq!(nearest(origin, &candidates, FocusDirection::Right), Some(0));
     }
 

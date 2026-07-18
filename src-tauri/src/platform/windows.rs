@@ -21,15 +21,15 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowTextLengthW,
     GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-    PostMessageW, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_MAXIMIZE,
-    SW_MINIMIZE, SW_RESTORE, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WM_CLOSE,
-    WS_EX_TOOLWINDOW,
+    PostMessageW, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE,
+    SW_RESTORE, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WM_CLOSE, WS_EX_TOOLWINDOW,
 };
 
 use super::{
     appindex, audio, brightness, network, notifications, radio, shell_control,
     windowing::WindowManager, ShellPlatform,
 };
+use crate::geometry::UnitRect;
 use crate::shell::{
     AppearanceState, OrbitSpace, PulseNote, SceneWindow, ShellState, SystemStatus, WindowInfo,
     WindowRule, WindowScene, WindowingState,
@@ -54,8 +54,10 @@ struct Internal {
     bluetooth_on: bool,
     brightness: Option<f32>,
     window_orbits: HashMap<isize, String>,
+    parked_wells: HashMap<isize, String>,
     rules: Vec<WindowRule>,
     ruled_windows: HashSet<isize>,
+    ignored_apps: HashSet<String>,
     last_notification_poll: std::time::Instant,
 }
 
@@ -74,9 +76,18 @@ impl WindowsPlatform {
         Self {
             inner: Mutex::new(Internal {
                 orbits: vec![
-                    OrbitSpace { id: "o1".into(), name: "Orbit 1".into() },
-                    OrbitSpace { id: "o2".into(), name: "Orbit 2".into() },
-                    OrbitSpace { id: "o3".into(), name: "Orbit 3".into() },
+                    OrbitSpace {
+                        id: "o1".into(),
+                        name: "Orbit 1".into(),
+                    },
+                    OrbitSpace {
+                        id: "o2".into(),
+                        name: "Orbit 2".into(),
+                    },
+                    OrbitSpace {
+                        id: "o3".into(),
+                        name: "Orbit 3".into(),
+                    },
                 ],
                 active_orbit: "o1".into(),
                 notifications: pulse_notes,
@@ -86,11 +97,22 @@ impl WindowsPlatform {
                 bluetooth_on,
                 brightness: display_brightness,
                 window_orbits: HashMap::new(),
+                parked_wells: HashMap::new(),
                 rules: Vec::new(),
                 ruled_windows: HashSet::new(),
+                ignored_apps: HashSet::new(),
                 last_notification_poll: std::time::Instant::now(),
             }),
             window_manager: WindowManager::default(),
+        }
+    }
+
+    fn ensure_not_ignored(&self, hwnd: HWND) -> Result<(), String> {
+        let app_id = appindex::app_id_for_window(hwnd, "");
+        if self.inner.lock().ignored_apps.contains(&app_id) {
+            Err("Gravity is configured to ignore this application".into())
+        } else {
+            Ok(())
         }
     }
 }
@@ -100,6 +122,7 @@ struct WindowScan<'a> {
     mapping: &'a mut HashMap<isize, String>,
     active_orbit: &'a str,
     seen: &'a mut Vec<isize>,
+    parked_wells: &'a HashMap<isize, String>,
 }
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -158,6 +181,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         maximized: IsZoomed(hwnd).as_bool(),
         focused: visible && hwnd == foreground,
         orbit_id,
+        parked_well_id: scan.parked_wells.get(&key).cloned(),
     });
     TRUE
 }
@@ -170,11 +194,15 @@ fn live_windows(inner: &mut Internal) -> Vec<WindowInfo> {
         mapping: &mut inner.window_orbits,
         active_orbit: &inner.active_orbit,
         seen: &mut seen,
+        parked_wells: &inner.parked_wells,
     };
     unsafe {
         let _ = EnumWindows(Some(enum_proc), LPARAM(&mut scan as *mut _ as isize));
     }
-    inner.window_orbits.retain(|handle, _| seen.contains(handle));
+    inner
+        .window_orbits
+        .retain(|handle, _| seen.contains(handle));
+    inner.parked_wells.retain(|handle, _| seen.contains(handle));
     out
 }
 
@@ -214,9 +242,7 @@ fn match_scene_windows(scene: &WindowScene, windows: &[WindowInfo]) -> Vec<(usiz
         let live = windows
             .iter()
             .enumerate()
-            .filter(|(index, window)| {
-                !used.contains(index) && window.app_id == saved.app_id
-            })
+            .filter(|(index, window)| !used.contains(index) && window.app_id == saved.app_id)
             .min_by_key(|(_, window)| if window.title == saved.title { 0 } else { 1 });
         if let Some((live_index, _)) = live {
             used.push(live_index);
@@ -237,7 +263,11 @@ impl ShellPlatform for WindowsPlatform {
         }
         let mut status = SystemStatus {
             online: inner.wifi_on,
-            network: if inner.wifi_on { inner.network_name.clone() } else { None },
+            network: if inner.wifi_on {
+                inner.network_name.clone()
+            } else {
+                None
+            },
             volume: audio::get_volume().unwrap_or(0.5),
             brightness: inner.brightness,
             focus: inner.focus,
@@ -253,11 +283,17 @@ impl ShellPlatform for WindowsPlatform {
             if window.orbit_id != active_orbit {
                 continue;
             }
-            let Ok(handle) = window.id.parse::<isize>() else { continue };
+            let Ok(handle) = window.id.parse::<isize>() else {
+                continue;
+            };
             let action = inner
                 .rules
                 .iter()
-                .find(|rule| rule.enabled && rule.app_id == window.app_id)
+                .find(|rule| {
+                    rule.enabled
+                        && rule.app_id == window.app_id
+                        && !inner.ignored_apps.contains(&window.app_id)
+                })
                 .map(|rule| rule.action.clone());
             if inner.ruled_windows.insert(handle) {
                 if let Some(action) = action {
@@ -289,12 +325,11 @@ impl ShellPlatform for WindowsPlatform {
         if !unsafe { IsWindow(hwnd) }.as_bool() {
             return Err("That window is no longer available".into());
         }
-        let orbit = self
-            .inner
-            .lock()
-            .window_orbits
-            .get(&(hwnd.0 as isize))
-            .cloned();
+        let orbit = {
+            let mut inner = self.inner.lock();
+            inner.parked_wells.remove(&(hwnd.0 as isize));
+            inner.window_orbits.get(&(hwnd.0 as isize)).cloned()
+        };
         if let Some(orbit) = orbit {
             self.switch_orbit(&orbit)?;
         }
@@ -312,7 +347,10 @@ impl ShellPlatform for WindowsPlatform {
         if !unsafe { IsWindow(hwnd) }.as_bool() {
             return Err("That window is no longer available".into());
         }
-        unsafe { let _ = ShowWindow(hwnd, SW_MINIMIZE); }
+        self.inner.lock().parked_wells.remove(&(hwnd.0 as isize));
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+        }
         Ok(())
     }
 
@@ -321,8 +359,13 @@ impl ShellPlatform for WindowsPlatform {
         if !unsafe { IsWindow(hwnd) }.as_bool() {
             return Err("That window is no longer available".into());
         }
+        self.inner.lock().parked_wells.remove(&(hwnd.0 as isize));
         unsafe {
-            let command = if IsZoomed(hwnd).as_bool() { SW_RESTORE } else { SW_MAXIMIZE };
+            let command = if IsZoomed(hwnd).as_bool() {
+                SW_RESTORE
+            } else {
+                SW_MAXIMIZE
+            };
             let _ = ShowWindow(hwnd, command);
             let _ = SetForegroundWindow(hwnd);
         }
@@ -334,17 +377,100 @@ impl ShellPlatform for WindowsPlatform {
         if !unsafe { IsWindow(hwnd) }.as_bool() {
             return Err("That window is no longer available".into());
         }
+        self.inner.lock().parked_wells.remove(&(hwnd.0 as isize));
         unsafe { PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)) }
             .map_err(|error| error.to_string())
     }
 
     fn window_action(&self, action: &str) -> Result<(), String> {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if !hwnd.0.is_null() {
+            self.ensure_not_ignored(hwnd)?;
+        }
         self.window_manager.execute(action)
     }
 
     fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String> {
         let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        self.ensure_not_ignored(hwnd)?;
         self.window_manager.execute_for(hwnd, action)
+    }
+
+    fn apply_grid_region(
+        &self,
+        window_id: &str,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String> {
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        self.ensure_not_ignored(hwnd)?;
+        self.window_manager
+            .place_unit(hwnd, UnitRect::new(x, y, width, height))
+    }
+
+    fn warp_window(&self, window_id: &str, operation: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        self.ensure_not_ignored(hwnd)?;
+        self.window_manager.nudge(hwnd, operation)
+    }
+
+    fn park_window(&self, window_id: &str, well_id: &str) -> Result<(), String> {
+        if well_id.is_empty()
+            || well_id.len() > 64
+            || !well_id
+                .chars()
+                .all(|value| value.is_ascii_alphanumeric() || matches!(value, '-' | '_'))
+        {
+            return Err("That desktop shape has an invalid identifier".into());
+        }
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        self.ensure_not_ignored(hwnd)?;
+        if !unsafe { IsWindow(hwnd) }.as_bool() {
+            return Err("That window is no longer available".into());
+        }
+        let mut inner = self.inner.lock();
+        let _ = live_windows(&mut inner);
+        let key = hwnd.0 as isize;
+        if !inner.window_orbits.contains_key(&key) {
+            return Err("Only normal application windows can be stored in a desktop shape".into());
+        }
+        inner.parked_wells.insert(key, well_id.to_string());
+        drop(inner);
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+        Ok(())
+    }
+
+    fn release_window(&self, window_id: &str) -> Result<(), String> {
+        let hwnd = id_to_hwnd(window_id).ok_or_else(|| "Invalid window identifier".to_string())?;
+        let removed = self.inner.lock().parked_wells.remove(&(hwnd.0 as isize));
+        if removed.is_none() {
+            return Err("That window is not stored in a desktop shape".into());
+        }
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
+        }
+        Ok(())
+    }
+
+    fn release_all_parked_windows(&self) -> Result<(), String> {
+        let handles: Vec<isize> = self
+            .inner
+            .lock()
+            .parked_wells
+            .drain()
+            .map(|(handle, _)| handle)
+            .collect();
+        for handle in handles {
+            unsafe {
+                let _ = ShowWindow(HWND(handle as *mut c_void), SW_RESTORE);
+            }
+        }
+        Ok(())
     }
 
     fn configure_windowing(&self, gap: u32, cycling: bool) {
@@ -355,6 +481,15 @@ impl ShellPlatform for WindowsPlatform {
         let mut inner = self.inner.lock();
         inner.rules = rules.to_vec();
         inner.ruled_windows.clear();
+    }
+
+    fn configure_ignored(&self, app_ids: &[String]) {
+        let mut inner = self.inner.lock();
+        inner.ignored_apps = app_ids.iter().cloned().collect();
+    }
+
+    fn current_display_fingerprint(&self) -> String {
+        self.window_manager.display_fingerprint()
     }
 
     fn capture_scene(&self, name: &str) -> Result<WindowScene, String> {
@@ -387,6 +522,8 @@ impl ShellPlatform for WindowsPlatform {
             name: name.to_string(),
             created_at,
             windows: captured,
+            auto_restore: false,
+            display_fingerprint: self.window_manager.display_fingerprint(),
         })
     }
 
@@ -497,7 +634,12 @@ impl ShellPlatform for WindowsPlatform {
         let windows = live_windows(&mut inner);
         let mut focus_target = None;
         for window in windows {
-            let Some(hwnd) = id_to_hwnd(&window.id) else { continue };
+            let Some(hwnd) = id_to_hwnd(&window.id) else {
+                continue;
+            };
+            if window.parked_well_id.is_some() {
+                continue;
+            }
             unsafe {
                 if window.orbit_id == id {
                     let command = if window.minimized {
@@ -536,7 +678,7 @@ impl ShellPlatform for WindowsPlatform {
             return Err("That window is no longer available".into());
         }
         inner.window_orbits.insert(key, orbit_id.to_string());
-        let active = inner.active_orbit == orbit_id;
+        let active = inner.active_orbit == orbit_id && !inner.parked_wells.contains_key(&key);
         drop(inner);
         unsafe {
             let _ = ShowWindow(hwnd, if active { SW_SHOWNOACTIVATE } else { SW_HIDE });
@@ -555,6 +697,7 @@ impl ShellPlatform for WindowsPlatform {
     }
 
     fn disengage_shell(&self) {
+        let _ = self.release_all_parked_windows();
         shell_control::restore_taskbar();
     }
 }

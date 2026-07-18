@@ -4,9 +4,7 @@ use windows::Win32::Devices::Display::{
     DestroyPhysicalMonitors, GetMonitorBrightness, GetNumberOfPhysicalMonitorsFromHMONITOR,
     GetPhysicalMonitorsFromHMONITOR, SetMonitorBrightness, PHYSICAL_MONITOR,
 };
-use windows::Win32::Graphics::Gdi::{
-    MonitorFromWindow, HMONITOR, MONITOR_DEFAULTTOPRIMARY,
-};
+use windows::Win32::Graphics::Gdi::{MonitorFromWindow, HMONITOR, MONITOR_DEFAULTTOPRIMARY};
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 fn active_monitor() -> HMONITOR {
@@ -66,8 +64,7 @@ pub fn set(value: f32) -> Result<(), String> {
         } != 0
             && maximum > minimum
         {
-            let target =
-                minimum + ((maximum - minimum) as f32 * value.clamp(0.0, 1.0)) as u32;
+            let target = minimum + ((maximum - minimum) as f32 * value.clamp(0.0, 1.0)) as u32;
             changed |= unsafe { SetMonitorBrightness(monitor.hPhysicalMonitor, target) } != 0;
         }
     }

@@ -48,6 +48,22 @@ pub struct WindowManager {
 }
 
 impl WindowManager {
+    pub fn display_fingerprint(&self) -> String {
+        monitor_work_areas()
+            .into_iter()
+            .map(|area| {
+                format!(
+                    "{}:{}:{}:{}",
+                    area.x.round(),
+                    area.y.round(),
+                    area.width.round(),
+                    area.height.round()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
     pub fn configure(&self, gap: u32, cycling: bool) {
         *self.preferences.lock() = WindowPreferences {
             gap: gap.min(48) as f64,
@@ -142,6 +158,51 @@ impl WindowManager {
         )
     }
 
+    pub fn place_unit(&self, hwnd: HWND, unit: UnitRect) -> Result<(), String> {
+        if !unit.x.is_finite()
+            || !unit.y.is_finite()
+            || !unit.width.is_finite()
+            || !unit.height.is_finite()
+            || unit.x < 0.0
+            || unit.y < 0.0
+            || unit.width <= 0.0
+            || unit.height <= 0.0
+            || unit.x + unit.width > 1.000_001
+            || unit.y + unit.height > 1.000_001
+        {
+            return Err("Grid regions must stay inside the visible display".into());
+        }
+        let current = window_rect(hwnd)?;
+        let visible = work_area(hwnd)?;
+        self.remember(hwnd, current);
+        move_window(hwnd, unit.resolve(visible, self.preferences.lock().gap))
+    }
+
+    pub fn nudge(&self, hwnd: HWND, operation: &str) -> Result<(), String> {
+        let current = window_rect(hwnd)?;
+        let visible = work_area(hwnd)?;
+        let mut next = current;
+        const STEP: f64 = 48.0;
+        match operation {
+            "move-left" => next.x -= STEP,
+            "move-right" => next.x += STEP,
+            "move-up" => next.y -= STEP,
+            "move-down" => next.y += STEP,
+            "shrink-width" => next.width = (next.width - STEP).max(320.0),
+            "grow-width" => next.width = (next.width + STEP).min(visible.width),
+            "shrink-height" => next.height = (next.height - STEP).max(240.0),
+            "grow-height" => next.height = (next.height + STEP).min(visible.height),
+            _ => return Err(format!("Unknown Warp operation: {operation}")),
+        }
+        next.x = next.x.clamp(
+            visible.x - next.width + 80.0,
+            visible.x + visible.width - 80.0,
+        );
+        next.y = next.y.clamp(visible.y, visible.y + visible.height - 60.0);
+        self.remember(hwnd, current);
+        move_window(hwnd, next.rounded())
+    }
+
     fn place(&self, hwnd: HWND, placement: Placement) -> Result<(), String> {
         let current = window_rect(hwnd)?;
         let visible = work_area(hwnd)?;
@@ -198,14 +259,19 @@ impl WindowManager {
             .unwrap_or(0);
         let next = (current as isize + delta).rem_euclid(monitors.len() as isize) as usize;
         self.remember(hwnd, current_frame);
-        move_window(hwnd, geometry::transpose(current_frame, current_area, monitors[next]))
+        move_window(
+            hwnd,
+            geometry::transpose(current_frame, current_area, monitors[next]),
+        )
     }
 
     fn arrange_display(&self, foreground: HWND) -> Result<(), String> {
         let area = work_area(foreground)?;
         let windows: Vec<_> = eligible_windows()
             .into_iter()
-            .filter(|hwnd| work_area(*hwnd).is_ok_and(|candidate| candidate.approximately(area, 2.0)))
+            .filter(|hwnd| {
+                work_area(*hwnd).is_ok_and(|candidate| candidate.approximately(area, 2.0))
+            })
             .collect();
         let gap = self.preferences.lock().gap;
         self.apply_frames(&windows, geometry::grid_frames(windows.len(), area, gap))
@@ -215,7 +281,9 @@ impl WindowManager {
         let area = work_area(foreground)?;
         let windows: Vec<_> = eligible_windows()
             .into_iter()
-            .filter(|hwnd| work_area(*hwnd).is_ok_and(|candidate| candidate.approximately(area, 2.0)))
+            .filter(|hwnd| {
+                work_area(*hwnd).is_ok_and(|candidate| candidate.approximately(area, 2.0))
+            })
             .collect();
         self.apply_frames(&windows, geometry::cascade_frames(windows.len(), area))
     }
@@ -251,8 +319,20 @@ impl WindowManager {
             .ok_or_else(|| "No second window is available".to_string())?;
         let area = work_area(foreground)?;
         let gap = self.preferences.lock().gap;
-        let left = geometry::target(Placement::LeftHalf, window_rect(foreground)?, area, gap, false);
-        let right = geometry::target(Placement::RightHalf, window_rect(partner)?, area, gap, false);
+        let left = geometry::target(
+            Placement::LeftHalf,
+            window_rect(foreground)?,
+            area,
+            gap,
+            false,
+        );
+        let right = geometry::target(
+            Placement::RightHalf,
+            window_rect(partner)?,
+            area,
+            gap,
+            false,
+        );
         self.remember(foreground, window_rect(foreground)?);
         self.remember(partner, window_rect(partner)?);
         move_window(foreground, left)?;

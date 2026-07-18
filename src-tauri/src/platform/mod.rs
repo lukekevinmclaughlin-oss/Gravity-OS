@@ -15,8 +15,22 @@ pub trait ShellPlatform: Send + Sync {
     fn close_window(&self, id: &str) -> Result<(), String>;
     fn window_action(&self, action: &str) -> Result<(), String>;
     fn window_action_for(&self, window_id: &str, action: &str) -> Result<(), String>;
+    fn apply_grid_region(
+        &self,
+        window_id: &str,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String>;
+    fn warp_window(&self, window_id: &str, operation: &str) -> Result<(), String>;
+    fn park_window(&self, window_id: &str, well_id: &str) -> Result<(), String>;
+    fn release_window(&self, window_id: &str) -> Result<(), String>;
+    fn release_all_parked_windows(&self) -> Result<(), String>;
     fn configure_windowing(&self, gap: u32, cycling: bool);
     fn configure_rules(&self, rules: &[WindowRule]);
+    fn configure_ignored(&self, app_ids: &[String]);
+    fn current_display_fingerprint(&self) -> String;
     fn capture_scene(&self, name: &str) -> Result<WindowScene, String>;
     fn restore_scene(&self, scene: &WindowScene) -> Result<(), String>;
 
@@ -44,12 +58,6 @@ pub trait ShellPlatform: Send + Sync {
 }
 
 #[cfg(windows)]
-mod windows;
-#[cfg(windows)]
-mod windowing;
-#[cfg(windows)]
-pub mod snap;
-#[cfg(windows)]
 pub mod appindex;
 #[cfg(windows)]
 mod audio;
@@ -58,13 +66,19 @@ mod brightness;
 #[cfg(windows)]
 pub mod input;
 #[cfg(windows)]
-mod radio;
-#[cfg(windows)]
 mod network;
 #[cfg(windows)]
 mod notifications;
 #[cfg(windows)]
+mod radio;
+#[cfg(windows)]
 pub mod shell_control;
+#[cfg(windows)]
+pub mod snap;
+#[cfg(windows)]
+mod windowing;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(not(windows))]
 mod mock;

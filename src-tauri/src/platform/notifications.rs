@@ -9,7 +9,9 @@ use crate::shell::PulseNote;
 
 pub fn read() -> Result<Vec<PulseNote>, String> {
     let listener = UserNotificationListener::Current().map_err(|error| error.to_string())?;
-    let mut access = listener.GetAccessStatus().map_err(|error| error.to_string())?;
+    let mut access = listener
+        .GetAccessStatus()
+        .map_err(|error| error.to_string())?;
     if access == UserNotificationListenerAccessStatus::Unspecified {
         access = listener
             .RequestAccessAsync()
@@ -23,12 +25,14 @@ pub fn read() -> Result<Vec<PulseNote>, String> {
         .GetNotificationsAsync(NotificationKinds::Toast)
         .and_then(|operation| operation.get())
         .map_err(|error| error.to_string())?;
-    let binding_name = KnownNotificationBindings::ToastGeneric()
-        .map_err(|error| error.to_string())?;
+    let binding_name =
+        KnownNotificationBindings::ToastGeneric().map_err(|error| error.to_string())?;
     let mut result = Vec::new();
     let size = notifications.Size().map_err(|error| error.to_string())?;
     for index in (0..size).rev().take(8) {
-        let item = notifications.GetAt(index).map_err(|error| error.to_string())?;
+        let item = notifications
+            .GetAt(index)
+            .map_err(|error| error.to_string())?;
         let app_name = item
             .AppInfo()
             .and_then(|app| app.DisplayInfo())
@@ -78,7 +82,7 @@ pub fn dismiss(id: &str) -> Result<(), String> {
 }
 
 fn hue(name: &str) -> u32 {
-    name.bytes()
-        .fold(0u32, |value, byte| value.wrapping_mul(31).wrapping_add(byte as u32))
-        % 360
+    name.bytes().fold(0u32, |value, byte| {
+        value.wrapping_mul(31).wrapping_add(byte as u32)
+    }) % 360
 }

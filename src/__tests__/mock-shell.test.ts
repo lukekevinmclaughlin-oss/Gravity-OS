@@ -103,6 +103,32 @@ describe("MockShell interaction contract", () => {
     expect(shell.snapshot().windowing.rules).toHaveLength(0);
   });
 
+  it("stores windows in Desktop Shapes and releases them without losing identity", async () => {
+    const shell = new MockShell();
+    const target = shell.snapshot().windows[0];
+    await shell.actions.parkWindow(target.id, "well-test");
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)).toMatchObject({
+      parkedWellId: "well-test",
+      focused: false,
+    });
+    await shell.actions.releaseWindow(target.id);
+    expect(shell.snapshot().windows.find((window) => window.id === target.id)).toMatchObject({
+      parkedWellId: undefined,
+      focused: true,
+    });
+  });
+
+  it("persists Gravity parity preferences in the interaction contract", async () => {
+    const shell = new MockShell();
+    const scene = await shell.actions.captureScene("Docked desk");
+    await shell.actions.setSceneAutoRestore(scene.id, true);
+    await shell.actions.setAppIgnored("calculator", true);
+    await shell.actions.setLaunchAtLogin(true);
+    expect(shell.snapshot().windowing.scenes[0].autoRestore).toBe(true);
+    expect(shell.snapshot().windowing.ignoredAppIds).toContain("calculator");
+    expect(shell.snapshot().windowing.launchAtLogin).toBe(true);
+  });
+
   it("rejects stale window, Orbit, app, wallpaper, Scene, and Rule targets", async () => {
     const shell = new MockShell();
     await expect(shell.actions.focusWindow("missing")).rejects.toThrow("no longer available");

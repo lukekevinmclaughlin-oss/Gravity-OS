@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 
 use super::ShellPlatform;
 use crate::shell::{
-    AppearanceState, AppInfo, OrbitSpace, SceneFrame, SceneWindow, ShellMode, ShellState,
+    AppInfo, AppearanceState, OrbitSpace, SceneFrame, SceneWindow, ShellMode, ShellState,
     SystemStatus, WindowInfo, WindowRule, WindowScene, WindowingState,
 };
 
@@ -33,6 +33,7 @@ impl MockPlatform {
                 maximized: false,
                 focused: true,
                 orbit_id: "o1".into(),
+                parked_well_id: None,
             },
             WindowInfo {
                 id: "w2".into(),
@@ -42,6 +43,7 @@ impl MockPlatform {
                 maximized: false,
                 focused: false,
                 orbit_id: "o1".into(),
+                parked_well_id: None,
             },
         ];
         let state = ShellState {
@@ -58,8 +60,14 @@ impl MockPlatform {
                 ..Default::default()
             },
             orbits: vec![
-                OrbitSpace { id: "o1".into(), name: "Orbit 1".into() },
-                OrbitSpace { id: "o2".into(), name: "Orbit 2".into() },
+                OrbitSpace {
+                    id: "o1".into(),
+                    name: "Orbit 1".into(),
+                },
+                OrbitSpace {
+                    id: "o2".into(),
+                    name: "Orbit 2".into(),
+                },
             ],
             active_orbit: "o1".into(),
             notifications: Vec::new(),
@@ -67,7 +75,9 @@ impl MockPlatform {
             windowing: WindowingState::default(),
             shell_mode: crate::shell::ShellMode::Gravity,
         };
-        Self { state: Mutex::new(state) }
+        Self {
+            state: Mutex::new(state),
+        }
     }
 }
 
@@ -84,6 +94,7 @@ impl ShellPlatform for MockPlatform {
             w.focused = w.id == id;
             if w.id == id {
                 w.minimized = false;
+                w.parked_well_id = None;
             }
         }
         Ok(())
@@ -153,6 +164,71 @@ impl ShellPlatform for MockPlatform {
         }
         Ok(())
     }
+    fn apply_grid_region(
+        &self,
+        window_id: &str,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String> {
+        if x < 0.0
+            || y < 0.0
+            || width <= 0.0
+            || height <= 0.0
+            || x + width > 1.0
+            || y + height > 1.0
+        {
+            return Err("Grid regions must stay inside the visible display".into());
+        }
+        self.focus_window(window_id)
+    }
+    fn warp_window(&self, window_id: &str, operation: &str) -> Result<(), String> {
+        if !matches!(
+            operation,
+            "move-left"
+                | "move-right"
+                | "move-up"
+                | "move-down"
+                | "shrink-width"
+                | "grow-width"
+                | "shrink-height"
+                | "grow-height"
+        ) {
+            return Err(format!("Unknown Warp operation: {operation}"));
+        }
+        self.focus_window(window_id)
+    }
+    fn park_window(&self, window_id: &str, well_id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let window = state
+            .windows
+            .iter_mut()
+            .find(|window| window.id == window_id)
+            .ok_or_else(|| "That window is no longer available".to_string())?;
+        window.parked_well_id = Some(well_id.to_string());
+        window.focused = false;
+        Ok(())
+    }
+    fn release_window(&self, window_id: &str) -> Result<(), String> {
+        let mut state = self.state.lock();
+        let window = state
+            .windows
+            .iter_mut()
+            .find(|window| window.id == window_id)
+            .ok_or_else(|| "That window is no longer available".to_string())?;
+        if window.parked_well_id.take().is_none() {
+            return Err("That window is not stored in a desktop shape".into());
+        }
+        window.focused = true;
+        Ok(())
+    }
+    fn release_all_parked_windows(&self) -> Result<(), String> {
+        for window in &mut self.state.lock().windows {
+            window.parked_well_id = None;
+        }
+        Ok(())
+    }
     fn configure_windowing(&self, gap: u32, cycling: bool) {
         let mut state = self.state.lock();
         state.windowing.gap = gap;
@@ -160,6 +236,12 @@ impl ShellPlatform for MockPlatform {
     }
     fn configure_rules(&self, rules: &[WindowRule]) {
         self.state.lock().windowing.rules = rules.to_vec();
+    }
+    fn configure_ignored(&self, app_ids: &[String]) {
+        self.state.lock().windowing.ignored_app_ids = app_ids.to_vec();
+    }
+    fn current_display_fingerprint(&self) -> String {
+        "mock-display".into()
     }
     fn capture_scene(&self, name: &str) -> Result<WindowScene, String> {
         let state = self.state.lock();
@@ -182,6 +264,8 @@ impl ShellPlatform for MockPlatform {
                     },
                 })
                 .collect(),
+            auto_restore: false,
+            display_fingerprint: "mock-display".into(),
         })
     }
     fn restore_scene(&self, scene: &WindowScene) -> Result<(), String> {
@@ -203,6 +287,7 @@ impl ShellPlatform for MockPlatform {
                     maximized: false,
                     focused: index == 0,
                     orbit_id: orbit_id.clone(),
+                    parked_well_id: None,
                 });
             }
         }
@@ -236,6 +321,7 @@ impl ShellPlatform for MockPlatform {
             maximized: false,
             focused: true,
             orbit_id,
+            parked_well_id: None,
         });
         Ok(())
     }
@@ -299,7 +385,9 @@ impl ShellPlatform for MockPlatform {
     fn dismiss_notification(&self, id: &str) -> Result<(), String> {
         let mut state = self.state.lock();
         let before = state.notifications.len();
-        state.notifications.retain(|notification| notification.id != id);
+        state
+            .notifications
+            .retain(|notification| notification.id != id);
         if state.notifications.len() == before {
             return Err("That notification is no longer available".into());
         }

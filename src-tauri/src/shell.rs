@@ -80,6 +80,8 @@ pub struct WindowInfo {
     pub maximized: bool,
     pub focused: bool,
     pub orbit_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parked_well_id: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -154,6 +156,10 @@ pub struct WindowScene {
     pub name: String,
     pub created_at: u64,
     pub windows: Vec<SceneWindow>,
+    #[serde(default)]
+    pub auto_restore: bool,
+    #[serde(default)]
+    pub display_fingerprint: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -173,6 +179,9 @@ pub struct WindowingState {
     pub cycling: bool,
     pub scenes: Vec<WindowScene>,
     pub rules: Vec<WindowRule>,
+    pub ignored_app_ids: Vec<String>,
+    pub launch_at_login: bool,
+    pub scene_auto_restore: bool,
 }
 
 impl Default for WindowingState {
@@ -182,6 +191,9 @@ impl Default for WindowingState {
             cycling: true,
             scenes: Vec::new(),
             rules: Vec::new(),
+            ignored_app_ids: Vec::new(),
+            launch_at_login: false,
+            scene_auto_restore: true,
         }
     }
 }

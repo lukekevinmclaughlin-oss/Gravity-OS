@@ -76,7 +76,7 @@ export class MockShell implements ShellProviderI {
     activeOrbit: "o1",
     notifications: [],
     appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
-    windowing: { gap: 10, cycling: true, scenes: [], rules: [] },
+    windowing: { gap: 10, cycling: true, scenes: [], rules: [], ignoredAppIds: [], launchAtLogin: false, sceneAutoRestore: true },
     shellMode: "gravity",
   };
 
@@ -134,6 +134,7 @@ export class MockShell implements ShellProviderI {
           ...w,
           focused: w.id === id,
           minimized: w.id === id ? false : w.minimized,
+          parkedWellId: w.id === id ? undefined : w.parkedWellId,
         })),
         activeOrbit:
           this.state.windows.find((w) => w.id === id)?.orbitId ?? this.state.activeOrbit,
@@ -170,6 +171,44 @@ export class MockShell implements ShellProviderI {
       });
       this.notify("Window Studio", "Layout applied", action);
     },
+    applyGridRegion: async (windowId, x, y, width, height) => {
+      if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
+        throw new Error("Grid regions must stay inside the visible display.");
+      }
+      await this.actions.focusWindow(windowId);
+      this.notify("Window Studio", "Grid region applied", `${Math.round(width * 6)} by ${Math.round(height * 4)} cells`);
+    },
+    warpWindow: async (windowId, operation) => {
+      await this.actions.focusWindow(windowId);
+      this.notify("Warp Mode", "Window adjusted", operation);
+    },
+    parkWindow: async (windowId, wellId) => {
+      if (!this.state.windows.some((window) => window.id === windowId)) {
+        throw new Error("That preview window is no longer available.");
+      }
+      this.emit({
+        windows: this.state.windows.map((window) =>
+          window.id === windowId ? { ...window, parkedWellId: wellId, focused: false } : window
+        ),
+      });
+    },
+    releaseWindow: async (windowId) => {
+      const target = this.state.windows.find((window) => window.id === windowId);
+      if (!target?.parkedWellId) throw new Error("That window is not stored in a desktop shape.");
+      this.emit({
+        windows: this.state.windows.map((window) =>
+          window.id === windowId
+            ? { ...window, parkedWellId: undefined, focused: true }
+            : { ...window, focused: false }
+        ),
+      });
+    },
+    releaseAllParkedWindows: async () => {
+      this.emit({
+        windows: this.state.windows.map((window) => ({ ...window, parkedWellId: undefined })),
+      });
+    },
+    registerDesktopWells: async () => {},
     launchApp: async (appId) => {
       const targetApp = this.state.apps.find((item) => item.id === appId);
       if (!targetApp) throw new Error("That application is no longer installed.");
@@ -256,6 +295,8 @@ export class MockShell implements ShellProviderI {
         id: `scene-${Date.now()}`,
         name: cleanName,
         createdAt: Math.floor(Date.now() / 1000),
+        autoRestore: false,
+        displayFingerprint: "mock-1920x1080",
         windows: this.state.windows.map((window) => ({
           appId: window.appId,
           title: window.title,
@@ -275,6 +316,19 @@ export class MockShell implements ShellProviderI {
         throw new Error("That Scene no longer exists.");
       }
       this.emit({ windowing: { ...this.state.windowing, scenes: this.state.windowing.scenes.filter((scene) => scene.id !== sceneId) } });
+    },
+    setSceneAutoRestore: async (sceneId, enabled) => {
+      if (!this.state.windowing.scenes.some((scene) => scene.id === sceneId)) throw new Error("That Scene no longer exists.");
+      this.emit({ windowing: { ...this.state.windowing, scenes: this.state.windowing.scenes.map((scene) => scene.id === sceneId ? { ...scene, autoRestore: enabled } : scene) } });
+    },
+    setAppIgnored: async (appId, ignored) => {
+      if (!this.state.apps.some((item) => item.id === appId)) throw new Error("That application is no longer installed.");
+      const ignoredAppIds = this.state.windowing.ignoredAppIds.filter((id) => id !== appId);
+      if (ignored) ignoredAppIds.push(appId);
+      this.emit({ windowing: { ...this.state.windowing, ignoredAppIds } });
+    },
+    setLaunchAtLogin: async (enabled) => {
+      this.emit({ windowing: { ...this.state.windowing, launchAtLogin: enabled } });
     },
     upsertWindowRule: async (appId, action, enabled) => {
       const app = this.state.apps.find((item) => item.id === appId);

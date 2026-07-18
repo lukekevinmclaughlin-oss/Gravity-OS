@@ -18,6 +18,8 @@ export interface WindowInfo {
   maximized: boolean;
   focused: boolean;
   orbitId: string;
+  /** Gravity desktop shape currently storing this hidden native window. */
+  parkedWellId?: string;
 }
 
 export interface SystemStatus {
@@ -75,6 +77,8 @@ export interface WindowScene {
   name: string;
   createdAt: number;
   windows: SceneWindow[];
+  autoRestore: boolean;
+  displayFingerprint: string;
 }
 
 export interface WindowRule {
@@ -90,6 +94,9 @@ export interface WindowingState {
   cycling: boolean;
   scenes: WindowScene[];
   rules: WindowRule[];
+  ignoredAppIds: string[];
+  launchAtLogin: boolean;
+  sceneAutoRestore: boolean;
 }
 
 export type ShellMode =
@@ -149,6 +156,12 @@ export interface ShellActions {
   closeWindow(id: string): Promise<void>;
   windowAction(action: WindowAction): Promise<void>;
   windowActionFor(windowId: string, action: WindowAction): Promise<void>;
+  applyGridRegion(windowId: string, x: number, y: number, width: number, height: number): Promise<void>;
+  warpWindow(windowId: string, operation: WarpOperation): Promise<void>;
+  parkWindow(windowId: string, wellId: string): Promise<void>;
+  releaseWindow(windowId: string): Promise<void>;
+  releaseAllParkedWindows(): Promise<void>;
+  registerDesktopWells(targets: DesktopWellTarget[]): Promise<void>;
   /** Resolve only after Windows has accepted the launch request. */
   launchApp(appId: string): Promise<LaunchResult>;
   /** Open one or more dropped files with a Dock application. */
@@ -161,6 +174,9 @@ export interface ShellActions {
   captureScene(name: string): Promise<WindowScene>;
   restoreScene(sceneId: string): Promise<void>;
   deleteScene(sceneId: string): Promise<void>;
+  setSceneAutoRestore(sceneId: string, enabled: boolean): Promise<void>;
+  setAppIgnored(appId: string, ignored: boolean): Promise<void>;
+  setLaunchAtLogin(enabled: boolean): Promise<void>;
   upsertWindowRule(appId: string, action: WindowAction, enabled: boolean): Promise<void>;
   deleteWindowRule(ruleId: string): Promise<void>;
   setVolume(v: number): Promise<void>;
@@ -182,6 +198,18 @@ export interface ShellActions {
   /** Quit Gravity entirely, restoring the Windows desktop first. */
   quitShell(): Promise<void>;
 }
+
+export interface DesktopWellTarget {
+  id: string;
+  monitor: number;
+  x: number;
+  y: number;
+  radius: number;
+}
+
+export type WarpOperation =
+  | "move-left" | "move-right" | "move-up" | "move-down"
+  | "shrink-width" | "grow-width" | "shrink-height" | "grow-height";
 
 export interface ShellProviderI {
   subscribe(listener: () => void): () => void;

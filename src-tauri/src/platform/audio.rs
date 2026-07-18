@@ -2,9 +2,7 @@
 //! `#[cfg(windows)]` only.
 
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-use windows::Win32::Media::Audio::{
-    eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
-};
+use windows::Win32::Media::Audio::{eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
@@ -16,7 +14,9 @@ unsafe fn with_endpoint<T>(f: impl FnOnce(&IAudioEndpointVolume) -> T) -> Option
     let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     let enumerator: IMMDeviceEnumerator =
         CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-    let device = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia).ok()?;
+    let device = enumerator
+        .GetDefaultAudioEndpoint(eRender, eMultimedia)
+        .ok()?;
     let endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_ALL, None).ok()?;
     Some(f(&endpoint))
 }

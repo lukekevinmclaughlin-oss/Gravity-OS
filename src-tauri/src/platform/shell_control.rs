@@ -14,7 +14,9 @@ use std::sync::{Mutex, OnceLock};
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT, TRUE, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::{
     SHAppBarMessage, ABE_BOTTOM, ABE_TOP, ABM_GETSTATE, ABM_NEW, ABM_QUERYPOS, ABM_REMOVE,
@@ -67,12 +69,7 @@ fn shell_transition_lock() -> &'static Mutex<()> {
 /// Register a Gravity strip with Explorer's native AppBar protocol. This is
 /// what makes maximized foreign applications respect the shell on every
 /// monitor, including mixed-DPI and negative-coordinate arrangements.
-pub fn register_app_bar(
-    raw_hwnd: isize,
-    edge: AppBarEdge,
-    monitor_rect: RECT,
-    thickness: i32,
-) {
+pub fn register_app_bar(raw_hwnd: isize, edge: AppBarEdge, monitor_rect: RECT, thickness: i32) {
     let mut registered = app_bars().lock().expect("app bar lock");
     // Tauri's monitor rectangle follows the current Explorer work area on
     // Windows. That rectangle changes while AppBars are being removed and
@@ -196,7 +193,9 @@ fn physical_monitor_rect(raw_hwnd: isize) -> Option<RECT> {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-        GetMonitorInfoW(monitor, &mut info).as_bool().then_some(info.rcMonitor)
+        GetMonitorInfoW(monitor, &mut info)
+            .as_bool()
+            .then_some(info.rcMonitor)
     }
 }
 
@@ -251,7 +250,11 @@ pub fn set_shell_surface_expanded(
             }
         }
         "orbit" => {
-            if expanded { 360.0 } else { 170.0 }
+            if expanded {
+                360.0
+            } else {
+                170.0
+            }
         }
         _ => return Err("Only Horizon and Orbit can be expanded".into()),
     };
@@ -304,16 +307,14 @@ pub fn fit_orbit_window(raw_hwnd: isize, app_count: u32) {
             return;
         }
         let mut window_rect = RECT::default();
-        if windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut window_rect)
-            .is_err()
-        {
+        if windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut window_rect).is_err() {
             return;
         }
         let dpi = GetDpiForWindow(hwnd).max(96);
         let monitor_width = info.rcMonitor.right - info.rcMonitor.left;
         let logical_monitor_width = monitor_width as f64 * 96.0 / dpi as f64;
-        let logical_width = (92.0 + (app_count + 3) as f64 * 52.0 + 260.0)
-            .min(logical_monitor_width);
+        let logical_width =
+            (92.0 + (app_count + 3) as f64 * 52.0 + 260.0).min(logical_monitor_width);
         let width = (logical_width * dpi as f64 / 96.0).ceil() as i32;
         let height = window_rect.bottom - window_rect.top;
         let x = info.rcMonitor.left + (monitor_width - width) / 2;
@@ -411,10 +412,8 @@ fn set_taskbar_visible(visible: bool) {
     for class in taskbar_windows() {
         unsafe {
             if let Ok(hwnd) = FindWindowW(PCWSTR(class.as_ptr()), PCWSTR::null()) {
-                if !hwnd.0.is_null() {
-                    if IsWindowVisible(hwnd).as_bool() != visible {
-                        let _ = ShowWindow(hwnd, cmd);
-                    }
+                if !hwnd.0.is_null() && IsWindowVisible(hwnd).as_bool() != visible {
+                    let _ = ShowWindow(hwnd, cmd);
                 }
             }
         }

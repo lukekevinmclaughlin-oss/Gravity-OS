@@ -34,7 +34,7 @@ export function DemoWindows() {
     width: number;
     height: number;
   } | null>(null);
-  const wins = state.windows.filter((w) => w.orbitId === state.activeOrbit && !w.minimized);
+  const wins = state.windows.filter((w) => w.orbitId === state.activeOrbit && !w.minimized && !w.parkedWellId);
 
   const beginDrag = (event: React.PointerEvent<HTMLDivElement>, windowId: string) => {
     if (event.pointerType === "mouse" || event.button !== 0 || (event.target as Element).closest("button")) return;

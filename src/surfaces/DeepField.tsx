@@ -5,6 +5,7 @@ import { WALLPAPERS, wallpaperSource } from "../lib/wallpapers";
 import { useShell } from "../shell/context";
 import type { AppearanceMode } from "../shell/types";
 import { WindowsIcon } from "../components/Icons";
+import { GravityWells } from "./GravityWells";
 import "./deepfield.css";
 
 /** Deep Field — Gravity's live generative wallpaper.
@@ -240,6 +241,7 @@ export function DeepField() {
       ) : (
         <LiveDeepField light={state.appearance.resolved === "light"} />
       )}
+      <GravityWells />
 
       {menu && (
         <>
@@ -263,6 +265,68 @@ export function DeepField() {
                 >
                   {mode[0].toUpperCase() + mode.slice(1)}
                 </button>
+              ))}
+            </div>
+
+            <div className="desktopMenu__heading">Gravity tools</div>
+            <button
+              className="desktopMenu__windows"
+              role="menuitem"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("gravity:add-well"));
+                setMenu(null);
+              }}
+            >
+              <span className="desktopMenu__toolIcon" aria-hidden="true">◇</span>
+              <span><strong>Add Desktop Shape</strong><small>A 3D home for live application windows</small></span>
+            </button>
+            <button
+              className="desktopMenu__windows"
+              role="menuitem"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("gravity:toggle-wells"));
+                setMenu(null);
+              }}
+            >
+              <span className="desktopMenu__toolIcon" aria-hidden="true">◈</span>
+              <span><strong>Show or Hide Desktop Shapes</strong><small>Keep stored windows parked until released</small></span>
+            </button>
+            <button
+              className="desktopMenu__windows"
+              role="menuitem"
+              onClick={() => {
+                setMenuError(null);
+                void actions.releaseAllParkedWindows()
+                  .then(() => setMenu(null))
+                  .catch((error) => setMenuError(String(error)));
+              }}
+            >
+              <span className="desktopMenu__toolIcon" aria-hidden="true">↗</span>
+              <span><strong>Release Stored Windows</strong><small>Restore every parked window to the desktop</small></span>
+            </button>
+
+            <div className="desktopMenu__heading">Shape organization</div>
+            <div className="desktopMenu__presets" aria-label="Desktop shape grid">
+              {[
+                ["Free", null],
+                ["2 × 2", { columns: 2, rows: 2 }],
+                ["3 × 3", { columns: 3, rows: 3 }],
+                ["4 × 3", { columns: 4, rows: 3 }],
+                ["6 × 4", { columns: 6, rows: 4 }],
+                ["8 × 5", { columns: 8, rows: 5 }],
+              ].map(([label, detail]) => (
+                <button key={String(label)} role="menuitem" onClick={() => {
+                  window.dispatchEvent(new CustomEvent("gravity:organize-wells", { detail }));
+                  setMenu(null);
+                }}>{String(label)}</button>
+              ))}
+            </div>
+            <div className="desktopMenu__presets" aria-label="Desktop shape size">
+              {[["Small", .8], ["Medium", 1], ["Large", 1.25]].map(([label, scale]) => (
+                <button key={String(label)} role="menuitem" onClick={() => {
+                  window.dispatchEvent(new CustomEvent("gravity:equalize-wells", { detail: { scale } }));
+                  setMenu(null);
+                }}>{String(label)}</button>
               ))}
             </div>
 

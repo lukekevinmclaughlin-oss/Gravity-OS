@@ -96,7 +96,7 @@
 }
 
 /* ---- Materials ---- */
-.glass {
+:where(.glass) {
   position: relative;
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
@@ -104,7 +104,7 @@
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--glass-highlight);
 }
-.glass-heavy {
+:where(.glass-heavy) {
   position: relative;
   background: var(--glass-bg-heavy);
   -webkit-backdrop-filter: blur(50px) saturate(180%);

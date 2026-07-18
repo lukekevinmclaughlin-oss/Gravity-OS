@@ -17,12 +17,13 @@ No Apple artwork, fonts, symbols, wallpaper, or branding is included.
 
 | Surface | Function |
 |---|---|
-| **Deep Field** | Per-monitor animated desktop attached to Explorer's WorkerW, with four original paired light/dark wallpapers. |
+| **Deep Field** | Per-monitor animated desktop attached to Explorer's WorkerW, with original paired light/dark wallpapers and persistent Desktop Shapes. |
 | **Horizon** | Native top AppBar with application, edit, window-management, appearance, system, and session controls. |
-| **Orbit** | Native application dock with installed-app discovery, real icons, Gaussian magnification, running state, launch feedback, focus/restore, drag reordering, pinning, and context actions. |
+| **Orbit** | Native application dock with installed-app discovery, real icons, spring-damped magnification, running/minimized state, launch feedback, focus/restore, drag reordering, pinning, and context actions. |
 | **Singularity** | Ranked application/action search and a parser-based calculator. |
 | **Constellation** | Live window overview and three managed Orbit workspaces with drag-to-workspace movement. |
-| **Window Studio** | Layout gallery, reusable scenes, per-application rules, gap preferences, and shortcut reference. |
+| **Window Studio** | Layout gallery, 6×4 freeform Grid Picker, keyboard Warp mode, reusable auto-restoring scenes, app rules, ignore list, gaps, and shortcut reference. |
+| **Desktop Shapes** | Nine persistent 3D window wells with capacity, size/color controls, grid organization, native drag-in parking, click/drag-out release, and Dock minimization. |
 | **Applications** | Searchable installed-application library with launch and pin controls. |
 | **Core** | Live volume, DDC/CI brightness, Wi-Fi, Bluetooth, focus, power, battery, and shell controls. |
 | **Pulse** | Windows Action Center feed with focus filtering and dismiss actions. |
@@ -51,7 +52,14 @@ Default global shortcuts:
 | `Ctrl+Alt+Shift+Left/Right` | Move to adjacent display |
 
 Snap previews also appear when a normal Windows application is dragged into a
-screen edge or corner zone.
+screen edge or corner zone. Holding `Alt` over a left or right edge selects a
+two-thirds region. Native windows can also be dropped onto a Desktop Shape to
+park them without losing their original position.
+
+Window Studio exposes every ported Gravity workflow: exact 6×4 grid painting,
+keyboard move/resize Warp mode, scenes with display-signature auto-restore,
+automatic per-app placement rules, directional focus, tile/gather/pair/arrange,
+cascade, grow/shrink, display transfer, and ten-level per-window undo history.
 
 ## Architecture
 

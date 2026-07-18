@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShell } from "../shell/context";
 import { AppTile } from "../components/AppTile";
 import { GridIcon, SunIcon, TrashIcon, WindowsIcon } from "../components/Icons";
@@ -8,10 +8,9 @@ import { fitOrbitWindow, growOrbitWindow, openOverlay } from "../lib/win";
 import { isTauri } from "../shell/tauri";
 import "./orbit.css";
 
-/** Orbit — Gravity's dock, with true magnification (spec §4):
- *  tiles grow toward 2.0× under the cursor with a Gaussian falloff and track
- *  the cursor 1:1 — no smoothing while the pointer moves; springs only on
- *  shelf enter/leave. Width-based growth lets the shelf widen naturally. */
+/** Orbit — Gravity's dock. A Gaussian target field is integrated through a
+ *  damped spring on one read/write-batched animation frame, so pointer motion,
+ *  neighbour displacement, insertions and shelf exit all share one fluid law. */
 
 const BASE = 48;
 const MAX_SCALE = 2.0;
@@ -45,6 +44,12 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   const [actionError, setActionError] = useState<string | null>(null);
   const pointerDrag = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
   const suppressClick = useRef<string | null>(null);
+  const pointerX = useRef<number | null>(null);
+  const animationFrame = useRef<number | null>(null);
+  const previousFrame = useRef<number | null>(null);
+  const reducedMotion = useRef(false);
+  const motion = useRef(new Map<string, { width: number; velocity: number }>());
+  const layoutPositions = useRef(new Map<string, DOMRect>());
 
   useEffect(() => {
     void growOrbitWindow(menu !== null);
@@ -76,6 +81,42 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   ];
   const minimizedWindows = state.windows.filter((window) => window.minimized);
   const pinnedIds = state.apps.filter((app) => app.pinned).map((app) => app.id);
+  const layoutSignature = `${items.map((item) => item.id).join("|")}::${minimizedWindows.map((window) => window.id).join("|")}`;
+
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      reducedMotion.current = preference.matches;
+    };
+    update();
+    preference.addEventListener("change", update);
+    return () => preference.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => () => {
+    if (animationFrame.current !== null) cancelAnimationFrame(animationFrame.current);
+  }, []);
+
+  useLayoutEffect(() => {
+    const next = new Map<string, DOMRect>();
+    for (const [key, element] of tileRefs.current) {
+      if (!element.isConnected) continue;
+      const rect = element.getBoundingClientRect();
+      next.set(key, rect);
+      const previous = layoutPositions.current.get(key);
+      const deltaX = previous ? previous.left - rect.left : 0;
+      if (!reducedMotion.current && previous && Math.abs(deltaX) > 0.5) {
+        element.animate(
+          [
+            { transform: `translate3d(${deltaX}px, 0, 0)` },
+            { transform: "translate3d(0, 0, 0)" },
+          ],
+          { duration: 320, easing: "cubic-bezier(.2,.82,.2,1)" },
+        );
+      }
+    }
+    layoutPositions.current = next;
+  }, [layoutSignature]);
 
   useEffect(() => {
     void fitOrbitWindow(items.length + minimizedWindows.length);
@@ -122,16 +163,68 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
     };
   }, [actions]);
 
-  const applyMagnify = (mouseX: number | null) => {
-    for (const el of tileRefs.current.values()) {
-      if (!el.isConnected) continue;
-      let w = BASE;
-      if (mouseX !== null) {
-        const rect = el.getBoundingClientRect();
-        w = BASE * magnify(rect.left + rect.width / 2 - mouseX);
-      }
-      el.style.width = `${w}px`;
+  const animateMagnify = (timestamp: number) => {
+    animationFrame.current = null;
+    const elapsed = previousFrame.current === null ? 1 / 60 : (timestamp - previousFrame.current) / 1000;
+    const deltaTime = Math.min(Math.max(elapsed, 1 / 240), 0.032);
+    previousFrame.current = timestamp;
+
+    // Batch all layout reads before writes so one growing tile cannot shift
+    // the center used to calculate its neighbours in the same frame.
+    const entries = [...tileRefs.current.entries()]
+      .filter(([, element]) => element.isConnected)
+      .map(([key, element]) => ({ key, element, rect: element.getBoundingClientRect() }));
+    const activeKeys = new Set(entries.map(({ key }) => key));
+    for (const key of motion.current.keys()) {
+      if (!activeKeys.has(key)) motion.current.delete(key);
     }
+
+    let unsettled = false;
+    for (const { key, element, rect } of entries) {
+      const target = pointerX.current === null
+        ? BASE
+        : BASE * magnify(rect.left + rect.width / 2 - pointerX.current);
+      const value = motion.current.get(key) ?? { width: rect.width || BASE, velocity: 0 };
+
+      if (reducedMotion.current) {
+        value.width = target;
+        value.velocity = 0;
+      } else {
+        const returning = pointerX.current === null;
+        const stiffness = returning ? 300 : 430;
+        const damping = returning ? 34 : 37;
+        const acceleration = stiffness * (target - value.width) - damping * value.velocity;
+        value.velocity += acceleration * deltaTime;
+        value.width += value.velocity * deltaTime;
+        value.width = Math.max(BASE * 0.98, Math.min(BASE * 2.04, value.width));
+        if (Math.abs(target - value.width) > 0.08 || Math.abs(value.velocity) > 0.25) {
+          unsettled = true;
+        } else {
+          value.width = target;
+          value.velocity = 0;
+        }
+      }
+
+      motion.current.set(key, value);
+      element.style.width = `${value.width.toFixed(3)}px`;
+      element.style.setProperty("--orbit-energy", `${Math.max(0, (value.width - BASE) / BASE).toFixed(3)}`);
+    }
+
+    if (unsettled) animationFrame.current = requestAnimationFrame(animateMagnify);
+    else previousFrame.current = null;
+  };
+
+  const applyMagnify = (mouseX: number | null) => {
+    pointerX.current = mouseX;
+    if (animationFrame.current === null) animationFrame.current = requestAnimationFrame(animateMagnify);
+  };
+
+  const captureLayout = () => {
+    const positions = new Map<string, DOMRect>();
+    for (const [key, element] of tileRefs.current) {
+      if (element.isConnected) positions.set(key, element.getBoundingClientRect());
+    }
+    layoutPositions.current = positions;
   };
 
   const onAppClick = async (appId: string) => {
@@ -186,6 +279,7 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
     const sourceId = requestedSource ?? pointerDrag.current?.id ?? draggedId;
     if (!sourceId) return;
     const next = reorderPinnedIds(pinnedIds, sourceId, targetId);
+    captureLayout();
     setDraggedId(null);
     setDragOverId(null);
     if (next !== pinnedIds) await actions.reorderPinnedApps(next);
@@ -285,7 +379,10 @@ export function Orbit({ onOpenAppLibrary }: OrbitProps = {}) {
   return (
     <nav
       className={`orbit glass ${live ? "is-live" : ""}`}
-      onMouseEnter={() => setLive(true)}
+      onMouseEnter={(event) => {
+        setLive(true);
+        applyMagnify(event.clientX);
+      }}
       onMouseMove={(e) => applyMagnify(e.clientX)}
       onMouseLeave={() => {
         setLive(false);

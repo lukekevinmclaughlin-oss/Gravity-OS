@@ -27,7 +27,7 @@ const EMPTY: ShellState = {
   activeOrbit: "o1",
   notifications: [],
   appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
-  windowing: { gap: 10, cycling: true, scenes: [], rules: [] },
+  windowing: { gap: 10, cycling: true, scenes: [], rules: [], ignoredAppIds: [], launchAtLogin: false, sceneAutoRestore: true },
   shellMode: "gravity",
 };
 
@@ -97,6 +97,15 @@ export class TauriShell implements ShellProviderI {
     windowAction: (action) => this.call<void>("window_action", { action }),
     windowActionFor: (windowId, action) =>
       this.call<void>("window_action_for", { windowId, action }),
+    applyGridRegion: (windowId, x, y, width, height) =>
+      this.call<void>("apply_grid_region", { windowId, x, y, width, height }),
+    warpWindow: (windowId, operation) =>
+      this.call<void>("warp_window", { windowId, operation }),
+    parkWindow: (windowId, wellId) =>
+      this.mutate<void>("park_window", { windowId, wellId }),
+    releaseWindow: (windowId) => this.mutate<void>("release_window", { windowId }),
+    releaseAllParkedWindows: () => this.mutate<void>("release_all_parked_windows"),
+    registerDesktopWells: (targets) => this.call<void>("register_desktop_wells", { targets }),
     launchApp: (appId) => {
       const { command, args } = ipc.launchApp(appId);
       return this.call<LaunchResult>(command, args);
@@ -133,6 +142,9 @@ export class TauriShell implements ShellProviderI {
       await this.call<void>("delete_scene", { sceneId });
       await this.refresh();
     },
+    setSceneAutoRestore: (sceneId, enabled) => this.mutate<void>("set_scene_auto_restore", { sceneId, enabled }),
+    setAppIgnored: (appId, ignored) => this.mutate<void>("set_app_ignored", { appId, ignored }),
+    setLaunchAtLogin: (enabled) => this.mutate<void>("set_launch_at_login", { enabled }),
     upsertWindowRule: async (appId, action, enabled) => {
       await this.call<void>("upsert_window_rule", { appId, action, enabled });
       await this.refresh();

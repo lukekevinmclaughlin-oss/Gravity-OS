@@ -1,6 +1,5 @@
-/* Orbit — the dock (spec §4). Width-based magnification: each item's width
-   is driven per-mousemove from JS; images fill their item, so growth is the
-   magnification. No transitions while live (1:1 tracking). */
+/* Orbit — the dock. Width-based magnification is advanced by a JS spring in a
+   single read/write animation batch; CSS handles secondary material cues. */
 
 .orbit {
   position: fixed;
@@ -9,10 +8,15 @@
   transform: translateX(-50%);
   z-index: 40;
   display: flex;
+  width: max-content;
+  max-width: calc(100vw - 16px);
   align-items: flex-end;
   gap: 0;
   padding: 7px 7px 6px;
   border-radius: 22px;
+  isolation: isolate;
+  will-change: contents;
+  transition: background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
 }
 
 .orbitItem {
@@ -22,9 +26,10 @@
   align-items: center;
   justify-content: flex-end;
   padding: 0 2px;
-  will-change: width;
-  /* Settle back over --t-med when the cursor leaves the shelf… */
-  transition: width var(--t-med) var(--ease-mass);
+  transform: translateZ(0);
+  will-change: width, transform;
+  /* Opacity/material state remains independent of spring-driven geometry. */
+  transition: opacity 160ms ease, filter 180ms ease;
 }
 
 .orbitItem[draggable="true"] {
@@ -37,8 +42,8 @@
 .orbitItem.is-reordering {
   z-index: 8;
   cursor: grabbing;
-  opacity: .72;
-  filter: saturate(.72);
+  opacity: .62;
+  filter: saturate(.72) drop-shadow(0 12px 18px rgba(0,0,0,.3));
 }
 .orbitItem.is-reorder-target .orbitItem__tileWrap {
   transform: translateY(-8px) scale(1.06);
@@ -74,15 +79,19 @@
 @keyframes orbit-file-pulse {
   to { opacity: .48; transform: scale(1.06); }
 }
-/* …but track 1:1 while the cursor is over it. */
-.orbit.is-live .orbitItem {
-  transition: none;
-}
-
+/* Subtle lift is derived from the same spring energy as magnification. */
 .orbitItem__tileWrap {
   position: relative;
   display: block;
   width: 100%;
+  transform: translate3d(0, calc(var(--orbit-energy, 0) * -1.5px), 0);
+  transform-origin: 50% 100%;
+  will-change: transform, filter;
+  transition: transform 180ms var(--ease-mass), filter 180ms ease;
+}
+.orbitItem:not(.is-reordering):active .orbitItem__tileWrap {
+  transform: translate3d(0, 1px, 0) scale(.95);
+  transition-duration: 70ms;
 }
 .orbitItem__tileWrap.is-launching {
   animation: orbitBounce 2.4s var(--ease-mass) infinite;
@@ -102,13 +111,21 @@
   margin-top: 2px;
   border-radius: 50%;
   background: transparent;
+  opacity: .45;
+  transform: scale(.55);
+  transition: opacity 180ms ease, transform 220ms var(--ease-mass), background-color 180ms ease,
+    box-shadow 180ms ease;
 }
 .orbitItem__dot.is-running {
   background: var(--ink-dim);
+  opacity: 1;
+  transform: scale(1);
 }
 .orbitItem__dot.is-minimized {
   background: color-mix(in srgb, var(--accent) 75%, var(--ink-dim));
   box-shadow: 0 0 6px var(--accent-soft);
+  opacity: 1;
+  transform: scale(1);
 }
 
 .orbitWindow__preview {
@@ -123,6 +140,12 @@
   background: color-mix(in srgb, var(--glass-bg-lift) 90%, transparent);
   box-shadow: 0 5px 13px rgba(0,0,0,.24), inset 0 1px rgba(255,255,255,.16);
   transition: transform var(--t-light) var(--ease-mass), border-color var(--t-light) ease;
+}
+.orbitWindow {
+  animation: orbit-window-in 260ms var(--ease-mass) both;
+}
+@keyframes orbit-window-in {
+  from { opacity: 0; transform: translateY(12px) scale(.82); }
 }
 .orbitWindow:hover .orbitWindow__preview {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--glass-border));
@@ -189,8 +212,9 @@
   position: absolute;
   bottom: calc(100% + 10px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate3d(-50%, 6px, 0) scale(.96);
   opacity: 0;
+  filter: blur(2px);
   pointer-events: none;
   white-space: nowrap;
   padding: 4px 10px;
@@ -198,11 +222,14 @@
   font: 500 var(--text-ui) var(--font-ui);
   letter-spacing: var(--track-ui);
   color: var(--ink);
-  transition: opacity 1ms linear 250ms;
+  transition: opacity 140ms ease 210ms, transform 180ms var(--ease-mass) 210ms,
+    filter 140ms ease 210ms;
   z-index: 5;
 }
 .orbitItem:hover .orbitItem__label {
   opacity: 1;
+  filter: blur(0);
+  transform: translate3d(-50%, 0, 0) scale(1);
 }
 
 .orbit__sep {
@@ -283,7 +310,9 @@
 @media (prefers-reduced-motion: reduce) {
   .orbitItem__tileWrap.is-launching,
   .orbitItem.is-error .orbitItem__tileWrap,
-  .orbitError { animation: none; }
+  .orbitError,
+  .orbitWindow,
+  .orbitContext { animation: none; }
   .orbitItem { transition-duration: 1ms; }
 }
 
@@ -303,6 +332,15 @@
   border-radius: var(--radius-menu);
   color: var(--ink);
   box-shadow: var(--shadow-menu);
+  transform-origin: 50% 100%;
+  animation: orbit-context-in 180ms var(--ease-mass) both;
+}
+
+@keyframes orbit-context-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px) scale(.96);
+  }
 }
 
 .orbitContext__title {
@@ -322,6 +360,7 @@
   padding: 4px 9px;
   border-radius: 6px;
   text-align: left;
+  transition: color 100ms ease, background-color 100ms ease, transform 120ms ease;
 }
 .orbitContext > .orbitContext__window {
   display: flex;
@@ -347,6 +386,7 @@
   color: white;
   background: var(--accent);
   outline: none;
+  transform: translateX(2px);
 }
 
 .orbitContext__sep {

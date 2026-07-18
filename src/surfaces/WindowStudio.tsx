@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { useShell } from "../shell/context";
-import type { WindowAction } from "../shell/types";
+import type { WarpOperation, WindowAction } from "../shell/types";
 import "./window-studio.css";
 
 export interface WindowStudioProps {
@@ -11,6 +12,8 @@ export interface WindowStudioProps {
 const LAYOUTS: Array<{ action: WindowAction; label: string; glyph: string }> = [
   { action: "left-half", label: "Left Half", glyph: "◧" },
   { action: "right-half", label: "Right Half", glyph: "◨" },
+  { action: "top-half", label: "Top Half", glyph: "⬒" },
+  { action: "bottom-half", label: "Bottom Half", glyph: "⬓" },
   { action: "top-left", label: "Top Left", glyph: "◰" },
   { action: "top-right", label: "Top Right", glyph: "◳" },
   { action: "bottom-left", label: "Bottom Left", glyph: "◱" },
@@ -20,7 +23,40 @@ const LAYOUTS: Array<{ action: WindowAction; label: string; glyph: string }> = [
   { action: "last-third", label: "Last Third", glyph: "▥" },
   { action: "first-two-thirds", label: "First ⅔", glyph: "▤" },
   { action: "last-two-thirds", label: "Last ⅔", glyph: "▤" },
+  { action: "sixth-top-left", label: "Top Sixth 1", glyph: "▦" },
+  { action: "sixth-top-center", label: "Top Sixth 2", glyph: "▦" },
+  { action: "sixth-top-right", label: "Top Sixth 3", glyph: "▦" },
+  { action: "sixth-bottom-left", label: "Bottom Sixth 1", glyph: "▦" },
+  { action: "sixth-bottom-center", label: "Bottom Sixth 2", glyph: "▦" },
+  { action: "sixth-bottom-right", label: "Bottom Sixth 3", glyph: "▦" },
   { action: "maximize", label: "Fill Screen", glyph: "▣" },
+  { action: "almost-maximize", label: "Almost Fill", glyph: "▢" },
+  { action: "center", label: "Center", glyph: "⊙" },
+];
+
+const WORKFLOWS: Array<{ action: WindowAction; label: string; detail: string }> = [
+  { action: "undo", label: "Undo", detail: "10-step layout history" },
+  { action: "restore", label: "Restore", detail: "Original window frame" },
+  { action: "grow", label: "Grow", detail: "Scale the active window" },
+  { action: "shrink", label: "Shrink", detail: "Scale the active window" },
+  { action: "next-display", label: "Next Display", detail: "Preserve relative geometry" },
+  { action: "previous-display", label: "Previous Display", detail: "Move to the prior screen" },
+  { action: "tile-app", label: "Tile App", detail: "Tile every window from this app" },
+  { action: "pair-previous", label: "Pair Previous", detail: "Split with your last window" },
+  { action: "gather-all", label: "Gather All", detail: "Bring every window to this display" },
+  { action: "arrange-display", label: "Arrange Display", detail: "Balanced full-display layout" },
+  { action: "cascade", label: "Cascade", detail: "Layer visible windows" },
+];
+
+const WARP_BUTTONS: Array<{ operation: WarpOperation; label: string; glyph: string }> = [
+  { operation: "move-up", label: "Move up", glyph: "↑" },
+  { operation: "move-left", label: "Move left", glyph: "←" },
+  { operation: "move-down", label: "Move down", glyph: "↓" },
+  { operation: "move-right", label: "Move right", glyph: "→" },
+  { operation: "shrink-width", label: "Narrower", glyph: "↤↦" },
+  { operation: "grow-width", label: "Wider", glyph: "↔" },
+  { operation: "shrink-height", label: "Shorter", glyph: "↥↧" },
+  { operation: "grow-height", label: "Taller", glyph: "↕" },
 ];
 
 const SHORTCUTS = [
@@ -30,6 +66,13 @@ const SHORTCUTS = [
   ["Ctrl Alt Enter", "Fill the screen"],
   ["Ctrl Alt Z", "Undo the last Gravity move"],
   ["Ctrl Alt Shift ← / →", "Move to another display"],
+  ["Ctrl Alt U / I / J / K", "Corner quarters"],
+  ["Ctrl Alt D / F / H", "First, centre, or last third"],
+  ["Ctrl Alt E / T", "First or last two-thirds"],
+  ["Ctrl Alt Space", "Open the 6 × 4 Grid Picker"],
+  ["Ctrl Alt W", "Open Warp Mode"],
+  ["Ctrl Alt P / A", "Pair previous / arrange display"],
+  ["Ctrl Alt Page Up / Down", "Grow or shrink"],
   ["F3", "Open Constellation"],
   ["Alt Space", "Open Singularity"],
   ["Ctrl Alt G", "Switch between Gravity and Windows 11"],
@@ -37,13 +80,17 @@ const SHORTCUTS = [
 
 export function WindowStudio({ open, onClose }: WindowStudioProps) {
   const { state, actions } = useShell();
-  const [tab, setTab] = useState<"layouts" | "scenes" | "rules" | "shortcuts">("layouts");
+  const [tab, setTab] = useState<"layouts" | "grid" | "warp" | "scenes" | "rules" | "shortcuts">("layouts");
   const [gap, setGap] = useState(state.windowing.gap);
   const [sceneName, setSceneName] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [ruleApp, setRuleApp] = useState(state.apps[0]?.id ?? "");
   const [ruleAction, setRuleAction] = useState<WindowAction>("left-half");
+  const [gridSelection, setGridSelection] = useState<{ start: [number, number]; end: [number, number] } | null>(null);
+  const gridAnchor = useRef<[number, number] | null>(null);
+  const gridDragging = useRef(false);
+  const [warpActive, setWarpActive] = useState(false);
   const target = useMemo(
     () => state.windows.find((window) => window.focused) ??
       state.windows.find((window) => window.orbitId === state.activeOrbit && !window.minimized),
@@ -51,7 +98,17 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
   );
 
   useEffect(() => setGap(state.windowing.gap), [state.windowing.gap]);
-  if (!open) return null;
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let dispose: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(({ listen }) => listen<{ tab?: string }>("gravity://window-studio-tab", (event) => {
+      if (event.payload.tab === "grid" || event.payload.tab === "warp") {
+        setTab(event.payload.tab);
+        if (event.payload.tab === "warp") setWarpActive(true);
+      }
+    })).then((unlisten) => { dispose = unlisten; });
+    return () => dispose?.();
+  }, []);
 
   const report = (work: Promise<unknown>, success?: string, key = "work") => {
     setBusy(key);
@@ -62,10 +119,67 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
       .finally(() => setBusy(null));
   };
 
+  const runWarp = (operation: WarpOperation) => {
+    if (!target || busy) return;
+    report(actions.warpWindow(target.id, operation), `${operation.replaceAll("-", " ")} · ${target.title}`, operation);
+  };
+
+  useEffect(() => {
+    if (!open || tab !== "warp" || !warpActive) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" || event.key === "Enter") {
+        event.preventDefault();
+        setWarpActive(false);
+        setMessage(event.key === "Enter" ? "Warp position accepted." : "Warp Mode closed. Every move remains available through Undo.");
+        return;
+      }
+      const operation: WarpOperation | undefined = event.shiftKey
+        ? ({ ArrowLeft: "shrink-width", ArrowRight: "grow-width", ArrowUp: "shrink-height", ArrowDown: "grow-height" } as const)[event.key as "ArrowLeft"]
+        : ({ ArrowLeft: "move-left", ArrowRight: "move-right", ArrowUp: "move-up", ArrowDown: "move-down" } as const)[event.key as "ArrowLeft"];
+      if (!operation) return;
+      event.preventDefault();
+      runWarp(operation);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, tab, warpActive, target?.id, busy]);
+
+  if (!open) return null;
+
   const applyLayout = (action: WindowAction) => {
     if (!target) return setMessage("Open an application window first.");
     const label = LAYOUTS.find((layout) => layout.action === action)?.label ?? action;
     report(actions.windowActionFor(target.id, action), `${label} applied to “${target.title}”.`, action);
+  };
+
+  const gridCellAt = (event: ReactPointerEvent<HTMLDivElement>): [number, number] => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return [
+      Math.max(0, Math.min(5, Math.floor(((event.clientX - rect.left) / rect.width) * 6))),
+      Math.max(0, Math.min(3, Math.floor(((event.clientY - rect.top) / rect.height) * 4))),
+    ];
+  };
+
+  const applyGrid = (start: [number, number], end: [number, number]) => {
+    if (!target) return setMessage("Open an application window first.");
+    const left = Math.min(start[0], end[0]);
+    const top = Math.min(start[1], end[1]);
+    const width = Math.abs(end[0] - start[0]) + 1;
+    const height = Math.abs(end[1] - start[1]) + 1;
+    report(
+      actions.applyGridRegion(target.id, left / 6, top / 4, width / 6, height / 4),
+      `${target.title} placed in a ${width} × ${height} grid region.`,
+      "grid",
+    );
+  };
+
+  const gridCellSelected = (column: number, row: number) => {
+    if (!gridSelection) return false;
+    const left = Math.min(gridSelection.start[0], gridSelection.end[0]);
+    const right = Math.max(gridSelection.start[0], gridSelection.end[0]);
+    const top = Math.min(gridSelection.start[1], gridSelection.end[1]);
+    const bottom = Math.max(gridSelection.start[1], gridSelection.end[1]);
+    return column >= left && column <= right && row >= top && row <= bottom;
   };
 
   const savePreferences = (nextGap = gap, cycling = state.windowing.cycling) =>
@@ -98,7 +212,7 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
         </header>
 
         <nav className="windowStudio__tabs" aria-label="Window Studio sections" role="tablist">
-          {(["layouts", "scenes", "rules", "shortcuts"] as const).map((item) => (
+          {(["layouts", "grid", "warp", "scenes", "rules", "shortcuts"] as const).map((item) => (
             <button key={item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)} role="tab" aria-selected={tab === item}>
               {item[0].toUpperCase() + item.slice(1)}
             </button>
@@ -141,8 +255,125 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
                   <span><b>Shortcut cycling</b><small>Repeat halves to cycle ½ → ⅔ → ⅓</small></span>
                   <i><i /></i>
                 </button>
+                <button
+                  className={`windowStudio__switchRow ${state.windowing.launchAtLogin ? "is-on" : ""}`}
+                  onClick={() => report(actions.setLaunchAtLogin(!state.windowing.launchAtLogin), state.windowing.launchAtLogin ? "Launch at login disabled." : "Gravity will start with Windows.", "login")}
+                >
+                  <span><b>Launch at login</b><small>Start the complete Gravity shell with Windows</small></span>
+                  <i><i /></i>
+                </button>
+              </div>
+              <div className="windowStudio__workflowHeading">
+                <b>Window workflows</b>
+                <span>Native multi-window and multi-display tools</span>
+              </div>
+              <div className="windowStudio__workflows">
+                {WORKFLOWS.map((workflow) => (
+                  <button
+                    key={workflow.action}
+                    disabled={!target || busy !== null}
+                    onClick={() => report(
+                      actions.windowActionFor(target!.id, workflow.action),
+                      `${workflow.label} completed.`,
+                      workflow.action,
+                    )}
+                  >
+                    <b>{workflow.label}</b>
+                    <small>{workflow.detail}</small>
+                  </button>
+                ))}
               </div>
             </>
+          )}
+
+          {tab === "grid" && (
+            <div className="windowStudio__gridPicker">
+              <div className="windowStudio__toolIntro">
+                <span className="windowStudio__toolGlyph" aria-hidden="true">▦</span>
+                <div><h2>6 × 4 Grid Picker</h2><p>Drag across cells to place {target?.title ?? "the active window"} with exact, display-relative geometry.</p></div>
+              </div>
+              <div
+                className={`windowStudio__grid ${!target || busy ? "is-disabled" : ""}`}
+                role="grid"
+                aria-label="Choose a window region on the six by four grid"
+                onPointerDown={(event) => {
+                  if (!target || busy) return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  const cell = gridCellAt(event);
+                  gridAnchor.current = cell;
+                  gridDragging.current = true;
+                  setGridSelection({ start: cell, end: cell });
+                }}
+                onPointerMove={(event) => {
+                  if (!gridDragging.current || !gridAnchor.current) return;
+                  setGridSelection({ start: gridAnchor.current, end: gridCellAt(event) });
+                }}
+                onPointerUp={(event) => {
+                  if (!gridDragging.current || !gridAnchor.current) return;
+                  const end = gridCellAt(event);
+                  const start = gridAnchor.current;
+                  gridDragging.current = false;
+                  gridAnchor.current = null;
+                  setGridSelection({ start, end });
+                  applyGrid(start, end);
+                }}
+                onPointerCancel={() => {
+                  gridDragging.current = false;
+                  gridAnchor.current = null;
+                }}
+              >
+                {Array.from({ length: 24 }, (_, index) => {
+                  const column = index % 6;
+                  const row = Math.floor(index / 6);
+                  return <span key={index} role="gridcell" aria-selected={gridCellSelected(column, row)} className={gridCellSelected(column, row) ? "is-selected" : ""} />;
+                })}
+              </div>
+              <div className="windowStudio__gridPresets">
+                {[
+                  ["Cinema", 0, 0, 6, 4], ["Centered", 1, 0, 4, 4], ["Reading", 1, 0, 3, 4],
+                  ["Triple Left", 0, 0, 2, 4], ["Upper Deck", 0, 0, 6, 2], ["Focus", 1, 1, 4, 2],
+                ].map(([label, column, row, width, height]) => (
+                  <button key={label} disabled={!target || busy !== null} onClick={() => applyGrid([column as number, row as number], [(column as number) + (width as number) - 1, (row as number) + (height as number) - 1])}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="windowStudio__toolHint">Every Grid placement is added to Gravity’s per-window Undo history.</p>
+            </div>
+          )}
+
+          {tab === "warp" && (
+            <div className={`windowStudio__warp ${warpActive ? "is-active" : ""}`}>
+              <div className="windowStudio__toolIntro">
+                <span className="windowStudio__toolGlyph" aria-hidden="true">⌖</span>
+                <div><h2>Warp Mode</h2><p>Move and resize {target?.title ?? "the active window"} in precise 48-pixel steps without reaching for its frame.</p></div>
+              </div>
+              <button
+                className="windowStudio__warpToggle"
+                disabled={!target}
+                onClick={() => {
+                  setWarpActive((current) => !current);
+                  setMessage(warpActive ? "Warp Mode paused." : "Warp Mode listening. Use arrows, Shift + arrows, Enter, or Escape.");
+                }}
+              >
+                <span className="windowStudio__warpPulse" />
+                <span><b>{warpActive ? "Warp Mode is listening" : "Start Warp Mode"}</b><small>{warpActive ? "Arrow keys move · Shift + arrows resize" : "Keyboard control for the focused native window"}</small></span>
+                <kbd>{warpActive ? "ENTER" : "START"}</kbd>
+              </button>
+              <div className="windowStudio__warpGrid">
+                {WARP_BUTTONS.map((item) => (
+                  <button key={item.operation} disabled={!target || busy !== null} onClick={() => runWarp(item.operation)}>
+                    <span>{item.glyph}</span><small>{item.label}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="windowStudio__focusPad">
+                <span>Directional focus</span>
+                {(["focus-left", "focus-up", "focus-down", "focus-right"] as WindowAction[]).map((action) => (
+                  <button key={action} disabled={!target || busy !== null} onClick={() => report(actions.windowActionFor(target!.id, action), `${action.replace("focus-", "Focus moved ")}.`, action)}>{({ "focus-left": "←", "focus-up": "↑", "focus-down": "↓", "focus-right": "→" } as Record<string, string>)[action]}</button>
+                ))}
+              </div>
+            </div>
           )}
 
           {tab === "scenes" && (
@@ -166,6 +397,12 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
                       <small>{scene.windows.length} window{scene.windows.length === 1 ? "" : "s"} · {new Date(scene.createdAt * 1000).toLocaleDateString()}</small>
                     </div>
                     <button disabled={busy !== null} onClick={() => report(actions.restoreScene(scene.id), `Restored “${scene.name}”.`, scene.id)}>Restore</button>
+                    <button
+                      className={scene.autoRestore ? "is-auto" : ""}
+                      disabled={busy !== null}
+                      onClick={() => report(actions.setSceneAutoRestore(scene.id, !scene.autoRestore), scene.autoRestore ? "Automatic restore disabled." : "Scene will restore when this display setup returns.", scene.id)}
+                      title={scene.displayFingerprint || "Display configuration"}
+                    >{scene.autoRestore ? "Auto On" : "Auto"}</button>
                     <button className="is-danger" disabled={busy !== null} onClick={() => report(actions.deleteScene(scene.id), "Scene deleted.", scene.id)}>Delete</button>
                   </article>
                 ))}
@@ -214,6 +451,21 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
                   </article>
                 ))}
                 {state.windowing.rules.length === 0 && <div className="windowStudio__empty">Add a Rule to place an application's windows automatically.</div>}
+              </div>
+              <div className="windowStudio__ignoreHeading"><b>Ignore list</b><span>Ignored applications are never moved, snapped, warped, ruled, or stored.</span></div>
+              <div className="windowStudio__ignoreList">
+                {[...state.apps].sort((a, b) => a.name.localeCompare(b.name)).map((app) => {
+                  const ignored = state.windowing.ignoredAppIds.includes(app.id);
+                  return (
+                    <button
+                      key={app.id}
+                      className={ignored ? "is-ignored" : ""}
+                      disabled={busy !== null}
+                      onClick={() => report(actions.setAppIgnored(app.id, !ignored), ignored ? `${app.name} returned to Gravity.` : `${app.name} added to the ignore list.`, `ignore-${app.id}`)}
+                      aria-pressed={ignored}
+                    ><span>{app.name}</span><small>{ignored ? "Ignored" : "Managed"}</small></button>
+                  );
+                })}
               </div>
             </div>
           )}
