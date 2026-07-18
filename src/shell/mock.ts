@@ -1,4 +1,5 @@
 import { hueOf } from "../lib/rng";
+import { DEFAULT_SHORTCUTS } from "../lib/shortcuts";
 import type {
   AppInfo,
   PulseNote,
@@ -76,7 +77,7 @@ export class MockShell implements ShellProviderI {
     activeOrbit: "o1",
     notifications: [],
     appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
-    windowing: { gap: 10, cycling: true, scenes: [], rules: [], ignoredAppIds: [], launchAtLogin: false, sceneAutoRestore: true },
+    windowing: { gap: 10, cycling: true, scenes: [], rules: [], ignoredAppIds: [], launchAtLogin: false, sceneAutoRestore: true, shortcuts: { ...DEFAULT_SHORTCUTS } },
     shellMode: "gravity",
   };
 
@@ -285,6 +286,22 @@ export class MockShell implements ShellProviderI {
     },
     setWindowPreferences: async (gap, cycling) => {
       this.emit({ windowing: { ...this.state.windowing, gap, cycling } });
+    },
+    setShortcut: async (actionId, binding) => {
+      if (!(actionId in DEFAULT_SHORTCUTS)) throw new Error("That shortcut action is not supported.");
+      const shortcuts = { ...this.state.windowing.shortcuts };
+      if (binding) {
+        if (["alt+space", "f3", "ctrl+alt+g"].includes(binding)) throw new Error("That shortcut is reserved for a critical Gravity control.");
+        const duplicate = Object.entries(shortcuts).find(([id, value]) => id !== actionId && value === binding);
+        if (duplicate) throw new Error(`That shortcut is already assigned to ${duplicate[0]}.`);
+        shortcuts[actionId] = binding;
+      } else {
+        delete shortcuts[actionId];
+      }
+      this.emit({ windowing: { ...this.state.windowing, shortcuts } });
+    },
+    resetShortcuts: async () => {
+      this.emit({ windowing: { ...this.state.windowing, shortcuts: { ...DEFAULT_SHORTCUTS } } });
     },
     captureScene: async (name) => {
       const cleanName = name.trim();

@@ -129,6 +129,18 @@ describe("MockShell interaction contract", () => {
     expect(shell.snapshot().windowing.launchAtLogin).toBe(true);
   });
 
+  it("remaps, clears, conflict-checks, and resets global shortcuts", async () => {
+    const shell = new MockShell();
+    await shell.actions.setShortcut("left-half", "ctrl+alt+q");
+    expect(shell.snapshot().windowing.shortcuts["left-half"]).toBe("ctrl+alt+q");
+    await expect(shell.actions.setShortcut("right-half", "ctrl+alt+q")).rejects.toThrow("already assigned");
+    await expect(shell.actions.setShortcut("right-half", "ctrl+alt+g")).rejects.toThrow("reserved");
+    await shell.actions.setShortcut("left-half", null);
+    expect(shell.snapshot().windowing.shortcuts["left-half"]).toBeUndefined();
+    await shell.actions.resetShortcuts();
+    expect(shell.snapshot().windowing.shortcuts["left-half"]).toBe("ctrl+alt+left");
+  });
+
   it("rejects stale window, Orbit, app, wallpaper, Scene, and Rule targets", async () => {
     const shell = new MockShell();
     await expect(shell.actions.focusWindow("missing")).rejects.toThrow("no longer available");

@@ -108,11 +108,21 @@ export function GravityWells() {
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    let unlisten: (() => void) | undefined;
+    let unlistenHover: (() => void) | undefined;
+    let unlistenCommand: (() => void) | undefined;
     void listen<{ wellId?: string | null }>("gravity://well-hover", (event) => {
       setHoverWell(event.payload.wellId ?? null);
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten?.();
+    }).then((dispose) => { unlistenHover = dispose; });
+    void listen<{ command?: string }>("gravity://well-command", (event) => {
+      if (event.payload.command === "toggle-shapes") setVisible((current) => !current);
+      if (event.payload.command === "equalize-shapes") {
+        setWells((current) => current.map((well) => ({ ...well, scale: 1 })));
+      }
+    }).then((dispose) => { unlistenCommand = dispose; });
+    return () => {
+      unlistenHover?.();
+      unlistenCommand?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -174,6 +184,7 @@ export function GravityWells() {
       await Promise.all((parked.get(well.id) ?? []).map((window) => actions.releaseWindow(window.id)));
       setWells((current) => current.filter((item) => item.id !== well.id));
       setMenu(null);
+      setMessage(`${well.name} removed. Its windows were safely released.`);
     } catch (error) {
       setMessage(String(error));
     }
@@ -183,7 +194,11 @@ export function GravityWells() {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    let lastX = event.clientX;
+    let lastY = event.clientY;
     const move = (next: PointerEvent) => {
+      lastX = next.clientX;
+      lastY = next.clientY;
       let x = Math.max(.04, Math.min(.96, next.clientX / Math.max(1, window.innerWidth)));
       let y = Math.max(.08, Math.min(.9, next.clientY / Math.max(1, window.innerHeight)));
       if (grid) {
@@ -198,6 +213,14 @@ export function GravityWells() {
     const finish = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
+      const exactTrash = document.elementFromPoint(lastX, lastY)?.closest(".orbit__trash");
+      const dockWidth = Math.min(window.innerWidth - 16, 650);
+      const nativeTrashFallback = lastY >= window.innerHeight - 170
+        && lastX >= window.innerWidth / 2 + dockWidth / 2 - 88
+        && lastX <= window.innerWidth / 2 + dockWidth / 2;
+      if (exactTrash || nativeTrashFallback) {
+        void removeWell(well);
+      }
     };
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerup", finish, { once: true });
@@ -263,7 +286,11 @@ export function GravityWells() {
             }}
             onWheel={(event) => {
               event.preventDefault();
-              updateWell(well.id, { rotation: (well.rotation ?? 0) + Math.sign(event.deltaY) * 18 });
+              if (event.ctrlKey || event.metaKey) {
+                updateWell(well.id, { scale: Math.max(.7, Math.min(1.5, well.scale - Math.sign(event.deltaY) * .05)) });
+              } else {
+                updateWell(well.id, { rotation: (well.rotation ?? 0) + Math.sign(event.deltaY) * 18 });
+              }
             }}
           >
             <button

@@ -1,10 +1,13 @@
 //! Tauri IPC surface. Thin wrappers over the active `ShellPlatform`.
 
 use parking_lot::Mutex;
-use tauri::{Emitter, State};
+use std::collections::BTreeMap;
+use tauri::{Emitter, Manager, State};
 
 #[cfg(windows)]
 use tauri::WebviewWindow;
+#[cfg(windows)]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use crate::platform::ShellPlatform;
 use crate::settings::SettingsStore;
@@ -151,6 +154,150 @@ pub fn set_window_preferences(
     state.platform.configure_windowing(gap, cycling);
     state_changed(&app);
     Ok(())
+}
+
+#[cfg(windows)]
+fn validated_shortcuts(
+    shortcuts: &BTreeMap<String, String>,
+) -> Result<Vec<(String, Shortcut)>, String> {
+    let supported = crate::settings::default_shortcuts();
+    let reserved = ["alt+space", "f3", "ctrl+alt+g"]
+        .into_iter()
+        .map(|binding| {
+            binding
+                .parse::<Shortcut>()
+                .expect("valid reserved shortcut")
+        })
+        .collect::<Vec<_>>();
+    let mut parsed = Vec::with_capacity(shortcuts.len());
+    for (action, binding) in shortcuts {
+        if !supported.contains_key(action) {
+            return Err(format!("'{action}' is not a configurable Gravity action"));
+        }
+        if binding.trim().is_empty() || binding.len() > 64 || !binding.is_ascii() {
+            return Err("Shortcut bindings must be 1 to 64 ASCII characters".into());
+        }
+        let shortcut = binding
+            .parse::<Shortcut>()
+            .map_err(|error| format!("'{binding}' is not a valid shortcut: {error}"))?;
+        if shortcut.mods.is_empty() {
+            return Err("Configurable shortcuts must include Ctrl, Alt, Shift, or Windows".into());
+        }
+        if reserved.contains(&shortcut) {
+            return Err(format!(
+                "'{binding}' is reserved for a critical Gravity shell control"
+            ));
+        }
+        if let Some((other, _)) = parsed.iter().find(|(_, value)| *value == shortcut) {
+            return Err(format!("'{binding}' is already assigned to {other}"));
+        }
+        parsed.push((action.clone(), shortcut));
+    }
+    Ok(parsed)
+}
+
+#[cfg(windows)]
+fn install_shortcut_map(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    next: BTreeMap<String, String>,
+) -> Result<(), String> {
+    let current = state.settings.shortcuts();
+    let current_parsed = validated_shortcuts(&current)?;
+    let next_parsed = validated_shortcuts(&next)?;
+    let manager = app.global_shortcut();
+
+    for (_, shortcut) in &current_parsed {
+        if manager.is_registered(*shortcut) {
+            manager
+                .unregister(*shortcut)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    let mut installed = Vec::new();
+    for (_, shortcut) in &next_parsed {
+        if let Err(error) = manager.register(*shortcut) {
+            for registered in installed {
+                let _ = manager.unregister(registered);
+            }
+            for (_, previous) in &current_parsed {
+                let _ = manager.register(*previous);
+            }
+            return Err(format!("Windows could not claim that shortcut: {error}"));
+        }
+        installed.push(*shortcut);
+    }
+
+    if let Err(error) = state.settings.replace_shortcuts(next) {
+        for shortcut in installed {
+            let _ = manager.unregister(shortcut);
+        }
+        for (_, previous) in &current_parsed {
+            let _ = manager.register(*previous);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn register_configured_shortcuts(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    match validated_shortcuts(&state.settings.shortcuts()) {
+        Ok(shortcuts) => {
+            for (action, shortcut) in shortcuts {
+                if let Err(error) = app.global_shortcut().register(shortcut) {
+                    eprintln!("Gravity shortcut '{action}' could not be registered: {error}");
+                }
+            }
+        }
+        Err(error) => eprintln!("Gravity shortcut settings were ignored: {error}"),
+    }
+}
+
+#[tauri::command]
+pub fn set_shortcut(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    action_id: String,
+    binding: Option<String>,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let mut next = state.settings.shortcuts();
+        if !crate::settings::default_shortcuts().contains_key(&action_id) {
+            return Err("That shortcut action is not supported".into());
+        }
+        if let Some(binding) = binding.map(|value| value.trim().to_ascii_lowercase()) {
+            next.insert(action_id, binding);
+        } else {
+            next.remove(&action_id);
+        }
+        install_shortcut_map(&app, &state, next)?;
+        state_changed(&app);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, state, action_id, binding);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn reset_shortcuts(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        install_shortcut_map(&app, &state, crate::settings::default_shortcuts())?;
+        state_changed(&app);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, state);
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -695,5 +842,25 @@ pub fn is_shell_replaced() -> bool {
     #[cfg(not(windows))]
     {
         false
+    }
+}
+
+#[cfg(all(test, windows))]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn every_default_shortcut_parses_without_reserved_or_duplicate_chords() {
+        let parsed = validated_shortcuts(&crate::settings::default_shortcuts()).unwrap();
+        assert_eq!(parsed.len(), crate::settings::default_shortcuts().len());
+    }
+
+    #[test]
+    fn shortcut_validation_rejects_the_critical_windows_handoff() {
+        let mut shortcuts = BTreeMap::new();
+        shortcuts.insert("left-half".into(), "ctrl+alt+g".into());
+        assert!(validated_shortcuts(&shortcuts)
+            .unwrap_err()
+            .contains("critical Gravity shell control"));
     }
 }

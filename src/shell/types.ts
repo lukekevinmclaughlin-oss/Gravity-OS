@@ -97,6 +97,7 @@ export interface WindowingState {
   ignoredAppIds: string[];
   launchAtLogin: boolean;
   sceneAutoRestore: boolean;
+  shortcuts: Record<string, string>;
 }
 
 export type ShellMode =
@@ -171,6 +172,8 @@ export interface ShellActions {
   setAppearance(mode: AppearanceMode): Promise<void>;
   setWallpaper(wallpaperId: string): Promise<void>;
   setWindowPreferences(gap: number, cycling: boolean): Promise<void>;
+  setShortcut(actionId: string, binding: string | null): Promise<void>;
+  resetShortcuts(): Promise<void>;
   captureScene(name: string): Promise<WindowScene>;
   restoreScene(sceneId: string): Promise<void>;
   deleteScene(sceneId: string): Promise<void>;

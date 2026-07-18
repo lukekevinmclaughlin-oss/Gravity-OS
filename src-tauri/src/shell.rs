@@ -3,6 +3,7 @@
 //! `ShellState` deserializes it directly.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -182,6 +183,7 @@ pub struct WindowingState {
     pub ignored_app_ids: Vec<String>,
     pub launch_at_login: bool,
     pub scene_auto_restore: bool,
+    pub shortcuts: BTreeMap<String, String>,
 }
 
 impl Default for WindowingState {
@@ -194,6 +196,7 @@ impl Default for WindowingState {
             ignored_app_ids: Vec::new(),
             launch_at_login: false,
             scene_auto_restore: true,
+            shortcuts: crate::settings::default_shortcuts(),
         }
     }
 }

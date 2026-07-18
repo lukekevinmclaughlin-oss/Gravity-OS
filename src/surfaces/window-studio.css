@@ -150,15 +150,32 @@
 .windowStudio__ignoreList button.is-ignored { border-color: color-mix(in srgb, var(--danger) 42%, var(--stroke)); background: color-mix(in srgb, var(--danger) 9%, var(--glass-bg-lift)); }
 .windowStudio__ignoreList button.is-ignored small { color: var(--danger); }
 
-.windowStudio__shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
-.windowStudio__shortcuts > div { display: flex; align-items: center; gap: 13px; padding: 13px; border: 1px solid var(--stroke); border-radius: 13px; background: var(--glass-bg-lift); }
-.windowStudio__shortcuts kbd { min-width: 128px; color: var(--ink); font: 600 11px var(--font-ui); }
-.windowStudio__shortcuts span { color: var(--ink-faint); font: 11px var(--font-ui); }
+.windowStudio__shortcutStudio { display: grid; gap: 12px; }
+.windowStudio__shortcutIntro { position: sticky; top: -20px; z-index: 2; display: flex; align-items: center; gap: 16px; margin: -20px -22px 3px; padding: 15px 22px; border-bottom: 1px solid var(--stroke); background: color-mix(in srgb, var(--glass-bg-heavy) 92%, transparent); backdrop-filter: blur(30px) saturate(160%); }
+.windowStudio__shortcutIntro > div { display: grid; flex: 1; gap: 3px; }
+.windowStudio__shortcutIntro b { color: var(--ink); font: 650 13px var(--font-ui); }
+.windowStudio__shortcutIntro span { color: var(--ink-faint); font: 10.5px/1.4 var(--font-ui); }
+.windowStudio__shortcutIntro > button { padding: 8px 11px; border: 1px solid var(--stroke); border-radius: 9px; color: var(--ink-dim); background: var(--glass-bg-lift); font: 600 10px var(--font-ui); }
+.windowStudio__shortcutIntro > button:hover:not(:disabled) { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
+.windowStudio__shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.windowStudio__shortcutRow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 150px 25px; align-items: center; gap: 8px; min-height: 61px; padding: 11px; border: 1px solid var(--stroke); border-radius: 13px; background: var(--glass-bg-lift); }
+.windowStudio__shortcutRow > strong { grid-column: 1 / -1; margin: 2px 0 -2px; color: var(--accent); font: 650 9.5px var(--font-ui); letter-spacing: .05em; text-transform: uppercase; }
+.windowStudio__shortcutRow > span { display: grid; min-width: 0; gap: 3px; }
+.windowStudio__shortcutRow > span b { overflow: hidden; color: var(--ink); font: 600 11px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.windowStudio__shortcutRow > span small { overflow: hidden; color: var(--ink-faint); font: 9.5px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.windowStudio__shortcutRow > button:not(.windowStudio__shortcutClear) { min-height: 31px; padding: 5px 8px; border: 1px solid var(--stroke); border-radius: 8px; color: var(--ink-dim); background: var(--glass-bg-hover); font: 620 9.5px var(--font-ui); white-space: nowrap; }
+.windowStudio__shortcutRow > button:not(.windowStudio__shortcutClear):hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
+.windowStudio__shortcutRow > button.is-recording { color: var(--on-accent); border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: shortcut-record 1.2s ease-in-out infinite; }
+.windowStudio__shortcutClear { width: 25px; height: 25px; border-radius: 50%; color: var(--ink-faint); background: var(--glass-bg-hover); font-size: 16px; line-height: 1; }
+.windowStudio__shortcutClear:hover:not(:disabled) { color: white; background: var(--danger); }
+.windowStudio__shortcutReserved { margin: 2px 2px 0; color: var(--ink-faint); font: 10px/1.6 var(--font-ui); text-align: center; }
+.windowStudio__shortcutReserved kbd { padding: 2px 5px; border: 1px solid var(--stroke); border-radius: 5px; color: var(--ink-dim); background: var(--glass-bg-lift); }
 .windowStudio footer { min-height: 37px; padding: 10px 22px; border-top: 1px solid transparent; color: var(--ink-faint); font: 11px var(--font-ui); }
 .windowStudio footer.is-visible { border-color: var(--stroke); }
 
 @keyframes studio-in { from { opacity: 0; transform: translateY(14px) scale(.965); } }
 @keyframes studio-scrim-in { from { opacity: 0; } }
 @keyframes warp-pulse { 50% { opacity: .68; transform: scale(.82); } }
+@keyframes shortcut-record { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 10%, transparent); } }
 @media (max-width: 720px) { .windowStudio__layoutGrid { grid-template-columns: repeat(4, 1fr); } .windowStudio__preferences, .windowStudio__shortcuts { grid-template-columns: 1fr; } .windowStudio__workflows { grid-template-columns: repeat(2, 1fr); } .windowStudio__gridPresets { grid-template-columns: repeat(3, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .windowStudioScrim, .windowStudio, .windowStudio__warpPulse { animation: none; } }

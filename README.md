@@ -38,7 +38,10 @@ Gravity ports and extends the geometry engine from the sibling `Gravity`
 project. Supported actions include halves, quarters, thirds, two-thirds,
 sixths, maximize, almost-maximize, center, grow/shrink, multi-monitor transfer,
 directional focus, cascade, application tiling, gather, paired layouts, undo,
-and configurable repeated-key cycling.
+and configurable repeated-key cycling. Every Gravity layout, focus, Scene,
+Grid, Warp, and Desktop Shape shortcut can be recorded, cleared, conflict-
+checked, or reset live in Window Studio; the Windows 11 handoff chord remains
+permanently available as a recovery control.
 
 Default global shortcuts:
 

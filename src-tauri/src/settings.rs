@@ -2,6 +2,7 @@
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::shell::{
@@ -11,6 +12,54 @@ use crate::shell::{
 
 fn default_wallpaper() -> String {
     "deep-field".into()
+}
+
+pub fn default_shortcuts() -> BTreeMap<String, String> {
+    [
+        ("left-half", "ctrl+alt+left"),
+        ("right-half", "ctrl+alt+right"),
+        ("top-half", "ctrl+alt+up"),
+        ("bottom-half", "ctrl+alt+down"),
+        ("top-left", "ctrl+alt+u"),
+        ("top-right", "ctrl+alt+i"),
+        ("bottom-left", "ctrl+alt+j"),
+        ("bottom-right", "ctrl+alt+k"),
+        ("first-third", "ctrl+alt+d"),
+        ("center-third", "ctrl+alt+f"),
+        // Ctrl+Alt+G is permanently reserved for the critical Windows handoff.
+        ("last-third", "ctrl+alt+h"),
+        ("first-two-thirds", "ctrl+alt+e"),
+        ("last-two-thirds", "ctrl+alt+t"),
+        ("maximize", "ctrl+alt+enter"),
+        ("almost-maximize", "ctrl+alt+shift+enter"),
+        ("center", "ctrl+alt+c"),
+        ("restore", "ctrl+alt+r"),
+        ("undo", "ctrl+alt+z"),
+        ("previous-display", "ctrl+alt+super+left"),
+        ("next-display", "ctrl+alt+super+right"),
+        ("tile-app", "ctrl+alt+a"),
+        ("gather-all", "ctrl+alt+m"),
+        ("arrange-display", "ctrl+alt+shift+a"),
+        ("pair-previous", "ctrl+alt+p"),
+        ("cascade", "ctrl+alt+b"),
+        ("grow", "ctrl+alt+pageup"),
+        ("shrink", "ctrl+alt+pagedown"),
+        ("focus-left", "ctrl+alt+shift+left"),
+        ("focus-right", "ctrl+alt+shift+right"),
+        ("focus-up", "ctrl+alt+shift+up"),
+        ("focus-down", "ctrl+alt+shift+down"),
+        ("grid-picker", "ctrl+alt+space"),
+        ("warp-mode", "ctrl+alt+w"),
+        ("save-scene", "ctrl+alt+shift+s"),
+        ("restore-scene", "ctrl+alt+s"),
+        // Windows reserves every Alt+Tab variant, so use the closest free chord.
+        ("toggle-shapes", "ctrl+alt+o"),
+        ("equalize-shapes", "ctrl+alt+shift+e"),
+        ("release-parked-windows", "ctrl+alt+shift+o"),
+    ]
+    .into_iter()
+    .map(|(action, binding)| (action.into(), binding.into()))
+    .collect()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,6 +76,7 @@ struct UserSettings {
     ignored_app_ids: Vec<String>,
     launch_at_login: bool,
     scene_auto_restore: bool,
+    shortcuts: BTreeMap<String, String>,
 }
 
 impl Default for UserSettings {
@@ -42,6 +92,7 @@ impl Default for UserSettings {
             ignored_app_ids: Vec::new(),
             launch_at_login: false,
             scene_auto_restore: true,
+            shortcuts: default_shortcuts(),
         }
     }
 }
@@ -76,6 +127,7 @@ impl SettingsStore {
             ignored_app_ids: settings.ignored_app_ids,
             launch_at_login: settings.launch_at_login,
             scene_auto_restore: settings.scene_auto_restore,
+            shortcuts: settings.shortcuts,
         };
     }
 
@@ -143,6 +195,23 @@ impl SettingsStore {
         self.inner.lock().ignored_app_ids.clone()
     }
 
+    pub fn shortcuts(&self) -> BTreeMap<String, String> {
+        self.inner.lock().shortcuts.clone()
+    }
+
+    pub fn replace_shortcuts(&self, shortcuts: BTreeMap<String, String>) -> Result<(), String> {
+        let supported = default_shortcuts();
+        if shortcuts
+            .keys()
+            .any(|action| !supported.contains_key(action))
+        {
+            return Err("Shortcut map contains an unsupported action".into());
+        }
+        let mut settings = self.inner.lock();
+        settings.shortcuts = shortcuts;
+        self.save_locked(&settings)
+    }
+
     pub fn set_app_ignored(&self, app_id: &str, ignored: bool) -> Result<(), String> {
         let mut settings = self.inner.lock();
         settings.ignored_app_ids.retain(|id| id != app_id);
@@ -201,6 +270,10 @@ impl SettingsStore {
             .iter()
             .find(|scene| scene.id == id)
             .cloned()
+    }
+
+    pub fn latest_scene(&self) -> Option<WindowScene> {
+        self.inner.lock().scenes.last().cloned()
     }
 
     pub fn set_scene_auto_restore(&self, id: &str, enabled: bool) -> Result<(), String> {
@@ -326,6 +399,7 @@ fn settings_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn configured_pin_order_is_applied_and_missing_apps_are_ignored() {
@@ -344,5 +418,17 @@ mod tests {
         assert!(apps[0].pinned);
         assert!(apps[1].pinned);
         assert!(!apps[2].pinned);
+    }
+
+    #[test]
+    fn shortcut_defaults_are_unique_and_preserve_the_shell_handoff() {
+        let shortcuts = default_shortcuts();
+        let bindings = shortcuts.values().collect::<HashSet<_>>();
+        assert_eq!(bindings.len(), shortcuts.len());
+        assert!(!shortcuts.values().any(|binding| binding == "ctrl+alt+g"));
+        assert_eq!(
+            shortcuts.get("last-third").map(String::as_str),
+            Some("ctrl+alt+h")
+        );
     }
 }

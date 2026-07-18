@@ -186,6 +186,74 @@ fn open_overlay_surface(app: &tauri::AppHandle, surface: &str) {
 }
 
 #[cfg(windows)]
+fn configured_shortcut_action(
+    app: &tauri::AppHandle,
+    shortcut: &tauri_plugin_global_shortcut::Shortcut,
+) -> Option<String> {
+    app.state::<AppState>()
+        .settings
+        .shortcuts()
+        .into_iter()
+        .find_map(|(action, binding)| {
+            binding
+                .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                .ok()
+                .filter(|candidate| candidate == shortcut)
+                .map(|_| action)
+        })
+}
+
+#[cfg(windows)]
+fn dispatch_configured_shortcut(app: &tauri::AppHandle, action: &str) {
+    use tauri::Emitter;
+    match action {
+        "grid-picker" | "warp-mode" => {
+            open_overlay_surface(app, "window-studio");
+            let _ = app.emit(
+                "gravity://window-studio-tab",
+                serde_json::json!({ "tab": if action == "grid-picker" { "grid" } else { "warp" } }),
+            );
+        }
+        "save-scene" => {
+            let state = app.state::<AppState>();
+            let name = format!(
+                "Scene {}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            );
+            if let Ok(scene) = state.platform.capture_scene(&name) {
+                let _ = state.settings.add_scene(scene);
+                let _ = app.emit("gravity://state-changed", ());
+            }
+        }
+        "restore-scene" => {
+            let state = app.state::<AppState>();
+            if let Some(scene) = state.settings.latest_scene() {
+                let _ = state.platform.restore_scene(&scene);
+                let _ = app.emit("gravity://state-changed", ());
+            }
+        }
+        "toggle-shapes" | "equalize-shapes" => {
+            let _ = app.emit(
+                "gravity://well-command",
+                serde_json::json!({ "command": action }),
+            );
+        }
+        "release-parked-windows" => {
+            let state = app.state::<AppState>();
+            let _ = state.platform.release_all_parked_windows();
+            let _ = app.emit("gravity://state-changed", ());
+        }
+        action => {
+            let state = app.state::<AppState>();
+            let _ = state.platform.window_action(action);
+        }
+    }
+}
+
+#[cfg(windows)]
 fn negotiate_surface_appbars(app: &tauri::AppHandle) {
     use platform::shell_control::{register_app_bar, AppBarEdge};
     use windows::Win32::Foundation::RECT;
@@ -398,164 +466,36 @@ pub fn run() {
     // memory, PowerToys-Run precedent), Ctrl+Alt+Up → Constellation
     // (macOS Ctrl+Up). Registered core-side; no capability surface.
     #[cfg(windows)]
-    let builder =
-        {
-            use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
-            let alt_space: Shortcut = "alt+space".parse().expect("parse alt+space");
-            let constellation: Shortcut = "f3".parse().expect("parse f3");
-            let left: Shortcut = "ctrl+alt+left".parse().expect("parse left layout");
-            let right: Shortcut = "ctrl+alt+right".parse().expect("parse right layout");
-            let top: Shortcut = "ctrl+alt+up".parse().expect("parse top layout");
-            let bottom: Shortcut = "ctrl+alt+down".parse().expect("parse bottom layout");
-            let maximize: Shortcut = "ctrl+alt+enter".parse().expect("parse maximize");
-            let undo: Shortcut = "ctrl+alt+z".parse().expect("parse layout undo");
-            let previous_display: Shortcut = "ctrl+alt+shift+left"
-                .parse()
-                .expect("parse previous display");
-            let next_display: Shortcut =
-                "ctrl+alt+shift+right".parse().expect("parse next display");
-            let toggle_shell: Shortcut = "ctrl+alt+g".parse().expect("parse shell toggle");
-            let top_left: Shortcut = "ctrl+alt+u".parse().expect("parse top left");
-            let top_right: Shortcut = "ctrl+alt+i".parse().expect("parse top right");
-            let bottom_left: Shortcut = "ctrl+alt+j".parse().expect("parse bottom left");
-            let bottom_right: Shortcut = "ctrl+alt+k".parse().expect("parse bottom right");
-            let first_third: Shortcut = "ctrl+alt+d".parse().expect("parse first third");
-            let center_third: Shortcut = "ctrl+alt+f".parse().expect("parse center third");
-            let last_third: Shortcut = "ctrl+alt+h".parse().expect("parse last third");
-            let first_two_thirds: Shortcut = "ctrl+alt+e".parse().expect("parse first two thirds");
-            let last_two_thirds: Shortcut = "ctrl+alt+t".parse().expect("parse last two thirds");
-            let center: Shortcut = "ctrl+alt+c".parse().expect("parse center");
-            let restore: Shortcut = "ctrl+alt+r".parse().expect("parse restore");
-            let grid_picker: Shortcut = "ctrl+alt+space".parse().expect("parse grid picker");
-            let warp_mode: Shortcut = "ctrl+alt+w".parse().expect("parse warp mode");
-            let pair: Shortcut = "ctrl+alt+p".parse().expect("parse pair previous");
-            let arrange: Shortcut = "ctrl+alt+a".parse().expect("parse arrange display");
-            let grow: Shortcut = "ctrl+alt+pageup".parse().expect("parse grow");
-            let shrink: Shortcut = "ctrl+alt+pagedown".parse().expect("parse shrink");
-            let tile_app: Shortcut = "ctrl+alt+l".parse().expect("parse tile app");
-            let gather: Shortcut = "ctrl+alt+m".parse().expect("parse gather");
-            let cascade: Shortcut = "ctrl+alt+b".parse().expect("parse cascade");
-            builder.plugin(
-                tauri_plugin_global_shortcut::Builder::new()
-                    .with_shortcuts([
-                        alt_space,
-                        constellation,
-                        left,
-                        right,
-                        top,
-                        bottom,
-                        maximize,
-                        undo,
-                        previous_display,
-                        next_display,
-                        toggle_shell,
-                        top_left,
-                        top_right,
-                        bottom_left,
-                        bottom_right,
-                        first_third,
-                        center_third,
-                        last_third,
-                        first_two_thirds,
-                        last_two_thirds,
-                        center,
-                        restore,
-                        grid_picker,
-                        warp_mode,
-                        pair,
-                        arrange,
-                        grow,
-                        shrink,
-                        tile_app,
-                        gather,
-                        cascade,
-                    ])
-                    .expect("register global shortcuts")
-                    .with_handler(move |app, shortcut, event| {
-                        if event.state == ShortcutState::Pressed {
-                            if *shortcut == toggle_shell {
-                                let active = {
-                                    let state = app.state::<AppState>();
-                                    let mode = *state.shell_mode.lock();
-                                    matches!(mode, ShellMode::Gravity | ShellMode::EnteringGravity)
-                                };
-                                let _ = set_shell_active_impl(app, !active);
-                            } else if *shortcut == alt_space {
-                                open_overlay_surface(app, "singularity");
-                            } else if *shortcut == constellation {
-                                open_overlay_surface(app, "constellation");
-                            } else if *shortcut == grid_picker || *shortcut == warp_mode {
-                                use tauri::Emitter;
-                                open_overlay_surface(app, "window-studio");
-                                let _ = app.emit("gravity://window-studio-tab", serde_json::json!({
-                                "tab": if *shortcut == grid_picker { "grid" } else { "warp" }
-                            }));
-                            } else {
-                                let action = if *shortcut == left {
-                                    Some("left-half")
-                                } else if *shortcut == right {
-                                    Some("right-half")
-                                } else if *shortcut == top {
-                                    Some("top-half")
-                                } else if *shortcut == bottom {
-                                    Some("bottom-half")
-                                } else if *shortcut == maximize {
-                                    Some("maximize")
-                                } else if *shortcut == undo {
-                                    Some("undo")
-                                } else if *shortcut == previous_display {
-                                    Some("previous-display")
-                                } else if *shortcut == next_display {
-                                    Some("next-display")
-                                } else if *shortcut == top_left {
-                                    Some("top-left")
-                                } else if *shortcut == top_right {
-                                    Some("top-right")
-                                } else if *shortcut == bottom_left {
-                                    Some("bottom-left")
-                                } else if *shortcut == bottom_right {
-                                    Some("bottom-right")
-                                } else if *shortcut == first_third {
-                                    Some("first-third")
-                                } else if *shortcut == center_third {
-                                    Some("center-third")
-                                } else if *shortcut == last_third {
-                                    Some("last-third")
-                                } else if *shortcut == first_two_thirds {
-                                    Some("first-two-thirds")
-                                } else if *shortcut == last_two_thirds {
-                                    Some("last-two-thirds")
-                                } else if *shortcut == center {
-                                    Some("center")
-                                } else if *shortcut == restore {
-                                    Some("restore")
-                                } else if *shortcut == pair {
-                                    Some("pair-previous")
-                                } else if *shortcut == arrange {
-                                    Some("arrange-display")
-                                } else if *shortcut == grow {
-                                    Some("grow")
-                                } else if *shortcut == shrink {
-                                    Some("shrink")
-                                } else if *shortcut == tile_app {
-                                    Some("tile-app")
-                                } else if *shortcut == gather {
-                                    Some("gather-all")
-                                } else if *shortcut == cascade {
-                                    Some("cascade")
-                                } else {
-                                    None
-                                };
-                                if let Some(action) = action {
-                                    let state = app.state::<AppState>();
-                                    let _ = state.platform.window_action(action);
-                                }
-                            }
+    let builder = {
+        use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
+        let alt_space: Shortcut = "alt+space".parse().expect("parse alt+space");
+        let constellation: Shortcut = "f3".parse().expect("parse f3");
+        let toggle_shell: Shortcut = "ctrl+alt+g".parse().expect("parse shell toggle");
+        builder.plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcuts([alt_space, constellation, toggle_shell])
+                .expect("register global shortcuts")
+                .with_handler(move |app, shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if *shortcut == toggle_shell {
+                            let active = {
+                                let state = app.state::<AppState>();
+                                let mode = *state.shell_mode.lock();
+                                matches!(mode, ShellMode::Gravity | ShellMode::EnteringGravity)
+                            };
+                            let _ = set_shell_active_impl(app, !active);
+                        } else if *shortcut == alt_space {
+                            open_overlay_surface(app, "singularity");
+                        } else if *shortcut == constellation {
+                            open_overlay_surface(app, "constellation");
+                        } else if let Some(action) = configured_shortcut_action(app, shortcut) {
+                            dispatch_configured_shortcut(app, &action);
                         }
-                    })
-                    .build(),
-            )
-        };
+                    }
+                })
+                .build(),
+        )
+    };
 
     let app = builder
         .manage(AppState::new())
@@ -582,6 +522,8 @@ pub fn run() {
             commands::set_appearance,
             commands::set_wallpaper,
             commands::set_window_preferences,
+            commands::set_shortcut,
+            commands::reset_shortcuts,
             commands::capture_scene,
             commands::restore_scene,
             commands::delete_scene,
@@ -611,6 +553,7 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(windows)]
             {
+                commands::register_configured_shortcuts(_app.handle());
                 setup_shell(_app)?;
                 register_surface_appbars(_app.handle());
                 platform::snap::start(_app.handle().clone());

@@ -1,5 +1,6 @@
 import type { LaunchResult, ShellActions, ShellProviderI, ShellState, ShellTransitionResult } from "./types";
 import { ipc } from "./ipc";
+import { DEFAULT_SHORTCUTS } from "../lib/shortcuts";
 
 /** Live backend for every Windows shell surface. */
 
@@ -27,7 +28,7 @@ const EMPTY: ShellState = {
   activeOrbit: "o1",
   notifications: [],
   appearance: { mode: "system", resolved: "dark", wallpaperId: "deep-field" },
-  windowing: { gap: 10, cycling: true, scenes: [], rules: [], ignoredAppIds: [], launchAtLogin: false, sceneAutoRestore: true },
+  windowing: { gap: 10, cycling: true, scenes: [], rules: [], ignoredAppIds: [], launchAtLogin: false, sceneAutoRestore: true, shortcuts: { ...DEFAULT_SHORTCUTS } },
   shellMode: "gravity",
 };
 
@@ -132,6 +133,8 @@ export class TauriShell implements ShellProviderI {
       await this.call<void>("set_window_preferences", { gap, cycling });
       await this.refresh();
     },
+    setShortcut: (actionId, binding) => this.mutate<void>("set_shortcut", { actionId, binding }),
+    resetShortcuts: () => this.mutate<void>("reset_shortcuts"),
     captureScene: async (name) => {
       const scene = await this.call<import("./types").WindowScene>("capture_scene", { name });
       await this.refresh();

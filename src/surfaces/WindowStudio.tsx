@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useShell } from "../shell/context";
 import type { WarpOperation, WindowAction } from "../shell/types";
+import { formatShortcut, shortcutFromEvent, SHORTCUT_DEFINITIONS } from "../lib/shortcuts";
 import "./window-studio.css";
 
 export interface WindowStudioProps {
@@ -59,25 +60,6 @@ const WARP_BUTTONS: Array<{ operation: WarpOperation; label: string; glyph: stri
   { operation: "grow-height", label: "Taller", glyph: "↕" },
 ];
 
-const SHORTCUTS = [
-  ["Ctrl Alt ←", "Cycle left ½ → ⅔ → ⅓"],
-  ["Ctrl Alt →", "Cycle right ½ → ⅔ → ⅓"],
-  ["Ctrl Alt ↑ / ↓", "Top or bottom half"],
-  ["Ctrl Alt Enter", "Fill the screen"],
-  ["Ctrl Alt Z", "Undo the last Gravity move"],
-  ["Ctrl Alt Shift ← / →", "Move to another display"],
-  ["Ctrl Alt U / I / J / K", "Corner quarters"],
-  ["Ctrl Alt D / F / H", "First, centre, or last third"],
-  ["Ctrl Alt E / T", "First or last two-thirds"],
-  ["Ctrl Alt Space", "Open the 6 × 4 Grid Picker"],
-  ["Ctrl Alt W", "Open Warp Mode"],
-  ["Ctrl Alt P / A", "Pair previous / arrange display"],
-  ["Ctrl Alt Page Up / Down", "Grow or shrink"],
-  ["F3", "Open Constellation"],
-  ["Alt Space", "Open Singularity"],
-  ["Ctrl Alt G", "Switch between Gravity and Windows 11"],
-];
-
 export function WindowStudio({ open, onClose }: WindowStudioProps) {
   const { state, actions } = useShell();
   const [tab, setTab] = useState<"layouts" | "grid" | "warp" | "scenes" | "rules" | "shortcuts">("layouts");
@@ -91,6 +73,7 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
   const gridAnchor = useRef<[number, number] | null>(null);
   const gridDragging = useRef(false);
   const [warpActive, setWarpActive] = useState(false);
+  const [recordingShortcut, setRecordingShortcut] = useState<string | null>(null);
   const target = useMemo(
     () => state.windows.find((window) => window.focused) ??
       state.windows.find((window) => window.orbitId === state.activeOrbit && !window.minimized),
@@ -118,6 +101,35 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
       .catch((error) => setMessage(String(error)))
       .finally(() => setBusy(null));
   };
+
+  useEffect(() => {
+    if (!open || tab !== "shortcuts" || !recordingShortcut) return;
+    const onKey = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setRecordingShortcut(null);
+        setMessage("Shortcut recording cancelled.");
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        const definition = SHORTCUT_DEFINITIONS.find((item) => item.id === recordingShortcut);
+        setRecordingShortcut(null);
+        report(actions.setShortcut(recordingShortcut, null), `${definition?.label ?? "Shortcut"} disabled.`, `shortcut-${recordingShortcut}`);
+        return;
+      }
+      const binding = shortcutFromEvent(event);
+      if (!binding) {
+        setMessage("Use at least one modifier: Ctrl, Alt, Shift, or the Windows key.");
+        return;
+      }
+      const definition = SHORTCUT_DEFINITIONS.find((item) => item.id === recordingShortcut);
+      setRecordingShortcut(null);
+      report(actions.setShortcut(recordingShortcut, binding), `${definition?.label ?? "Shortcut"} set to ${formatShortcut(binding)}.`, `shortcut-${recordingShortcut}`);
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [open, tab, recordingShortcut, actions]);
 
   const runWarp = (operation: WarpOperation) => {
     if (!target || busy) return;
@@ -412,10 +424,35 @@ export function WindowStudio({ open, onClose }: WindowStudioProps) {
           )}
 
           {tab === "shortcuts" && (
-            <div className="windowStudio__shortcuts">
-              {SHORTCUTS.map(([keys, description]) => (
-                <div key={keys}><kbd>{keys}</kbd><span>{description}</span></div>
-              ))}
+            <div className="windowStudio__shortcutStudio">
+              <div className="windowStudio__shortcutIntro">
+                <div><b>Global shortcuts</b><span>Click a binding, then press a new combination. Escape cancels; Backspace or Delete clears it.</span></div>
+                <button disabled={busy !== null} onClick={() => report(actions.resetShortcuts(), "Magnet-compatible defaults restored.", "shortcut-reset")}>Reset Defaults</button>
+              </div>
+              <div className="windowStudio__shortcuts">
+                {SHORTCUT_DEFINITIONS.map((definition, index) => (
+                  <div key={definition.id} className="windowStudio__shortcutRow">
+                    {(index === 0 || SHORTCUT_DEFINITIONS[index - 1].group !== definition.group) && <strong>{definition.group}</strong>}
+                    <span><b>{definition.label}</b><small>{definition.detail}</small></span>
+                    <button
+                      className={recordingShortcut === definition.id ? "is-recording" : ""}
+                      disabled={busy !== null && busy !== `shortcut-${definition.id}`}
+                      onClick={() => {
+                        setMessage(null);
+                        setRecordingShortcut((current) => current === definition.id ? null : definition.id);
+                      }}
+                      aria-label={`Record shortcut for ${definition.label}`}
+                    >{recordingShortcut === definition.id ? "Press shortcut…" : formatShortcut(state.windowing.shortcuts?.[definition.id])}</button>
+                    <button
+                      className="windowStudio__shortcutClear"
+                      disabled={!state.windowing.shortcuts?.[definition.id] || busy !== null}
+                      onClick={() => report(actions.setShortcut(definition.id, null), `${definition.label} disabled.`, `shortcut-${definition.id}`)}
+                      aria-label={`Clear shortcut for ${definition.label}`}
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+              <p className="windowStudio__shortcutReserved">Always available: <kbd>Alt Space</kbd> Singularity · <kbd>F3</kbd> Constellation · <kbd>Ctrl Alt G</kbd> Windows 11 handoff.</p>
             </div>
           )}
 
